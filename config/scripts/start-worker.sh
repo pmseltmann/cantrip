@@ -73,17 +73,28 @@ elif [ -z "$CHANNEL_ID" ]; then
     echo "Add the channel ID to bots.json and re-run, or manually update access.json."
 fi
 
+# Build environment variables for the worker session
+REPLICATE_TOKEN=$(cfg_token "replicate" 2>/dev/null || echo "")
+VERCEL_TOKEN_VAL=$(cfg_vercel_token 2>/dev/null || echo "")
+
+ENV_VARS="DISCORD_BOT_TOKEN=\"$TOKEN\""
+[ -n "$REPLICATE_TOKEN" ] && ENV_VARS="$ENV_VARS REPLICATE_API_TOKEN=\"$REPLICATE_TOKEN\""
+[ -n "$VERCEL_TOKEN_VAL" ] && ENV_VARS="$ENV_VARS VERCEL_TOKEN=\"$VERCEL_TOKEN_VAL\""
+
 # Launch
 if command -v tmux &> /dev/null; then
     echo "Starting $WORKER_ID in tmux session: $SESSION_NAME"
     tmux new-session -d -s "$SESSION_NAME" -c "$PROJECT_DIR" \
-        "DISCORD_BOT_TOKEN=\"$TOKEN\" claude --channels plugin:discord@claude-plugins-official --dangerously-skip-permissions --append-system-prompt \"$SYSTEM_PROMPT\""
+        "$ENV_VARS claude --channels plugin:discord@claude-plugins-official --dangerously-skip-permissions --append-system-prompt \"$SYSTEM_PROMPT\""
 
     echo "$WORKER_ID attuned. Attach: tmux attach -t $SESSION_NAME"
 else
     echo "tmux not found — running in foreground."
     cd "$PROJECT_DIR"
-    DISCORD_BOT_TOKEN="$TOKEN" exec claude \
+    export DISCORD_BOT_TOKEN="$TOKEN"
+    [ -n "$REPLICATE_TOKEN" ] && export REPLICATE_API_TOKEN="$REPLICATE_TOKEN"
+    [ -n "$VERCEL_TOKEN_VAL" ] && export VERCEL_TOKEN="$VERCEL_TOKEN_VAL"
+    exec claude \
         --channels plugin:discord@claude-plugins-official \
         --dangerously-skip-permissions \
         --append-system-prompt "$SYSTEM_PROMPT"

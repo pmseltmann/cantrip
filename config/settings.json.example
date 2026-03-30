@@ -19,7 +19,8 @@
     "worker-3": "YOUR_WORKER_3_BOT_TOKEN",
     "worker-4": "YOUR_WORKER_4_BOT_TOKEN",
     "vercel": "YOUR_VERCEL_TOKEN",
-    "github": null
+    "github": null,
+    "replicate": "YOUR_REPLICATE_API_TOKEN"
   },
 
   "bots": {

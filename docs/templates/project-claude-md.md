@@ -112,3 +112,51 @@ When you first start on a project:
 **Deploy target**: {{DEPLOY_TARGET}}
 **Deploy command**: {{DEPLOY_COMMAND}}
 **Production URL**: {{PRODUCTION_URL}}
+
+## Image Generation (Replicate)
+
+If the `REPLICATE_API_TOKEN` environment variable is set, you can generate images using the Replicate API. Use this when the project needs placeholder images, hero graphics, icons, or any visual assets.
+
+### How to Generate an Image
+
+```bash
+curl -s -X POST "https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions" \
+  -H "Authorization: Bearer $REPLICATE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"prompt": "YOUR PROMPT HERE", "num_outputs": 1, "aspect_ratio": "16:9"}}' \
+  | jq -r '.urls.get'
+```
+
+Then poll the returned URL until `status` is `succeeded`, and grab the output URL:
+
+```bash
+# Poll until done (replace GET_URL with the URL from above)
+curl -s -H "Authorization: Bearer $REPLICATE_API_TOKEN" "GET_URL" | jq -r '.output[0]'
+```
+
+Download the image:
+
+```bash
+curl -sL "IMAGE_URL" -o public/images/hero.webp
+```
+
+### When to Use
+
+- The user asks for a landing page and you need a hero image
+- The user asks for placeholder images or visual content
+- The project needs icons, banners, or illustrations
+- Always describe what you're generating and why in the Discord channel
+
+### When NOT to Use
+
+- The user provides their own images
+- The project doesn't need visual assets
+- You're unsure — ask the user first
+
+### Available Models
+
+- `black-forest-labs/flux-schnell` — fast, good quality, general purpose (default)
+- `black-forest-labs/flux-dev` — slower, higher quality
+- `black-forest-labs/flux-1.1-pro` — best quality, costs more
+
+Use `flux-schnell` by default unless the user asks for higher quality.

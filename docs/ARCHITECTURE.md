@@ -392,6 +392,7 @@ config/settings.json
 ├── tokens.worker-1..4
 ├── tokens.vercel                  # Vercel deploy token
 ├── tokens.github                  # GitHub token (if not using SSH)
+├── tokens.replicate               # Replicate API token (for image generation)
 └── bots.manager/worker-*.discord_user_id  # Bot user IDs
 ```
 

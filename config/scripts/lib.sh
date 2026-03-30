@@ -66,6 +66,10 @@ cfg_vercel_token() {
     cfg '.tokens.vercel'
 }
 
+cfg_replicate_token() {
+    cfg '.tokens.replicate'
+}
+
 # --- bots.json readers (runtime state) ---
 
 bots_project_channel_id() {

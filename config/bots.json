@@ -1,0 +1,47 @@
+{
+  "$comment": "Cantrip runtime state. Static config lives in settings.json. This file tracks familiar attunements and project registry.",
+
+  "workers": {
+    "worker-1": {
+      "assigned_project": null,
+      "assigned_channel": null,
+      "status": "idle"
+    },
+    "worker-2": {
+      "assigned_project": null,
+      "assigned_channel": null,
+      "status": "idle"
+    },
+    "worker-3": {
+      "assigned_project": null,
+      "assigned_channel": null,
+      "status": "idle"
+    },
+    "worker-4": {
+      "assigned_project": null,
+      "assigned_channel": null,
+      "status": "idle"
+    }
+  },
+
+  "projects": {
+    "project-1": {
+      "discord_channel": "project-1",
+      "discord_channel_id": "1487709515141873815",
+      "directory": "projects/project-1",
+      "deploy_target": null,
+      "deploy_command": null,
+      "tech_stack": null,
+      "repo_url": null
+    },
+    "project-2": {
+      "discord_channel": "project-2",
+      "discord_channel_id": "1487709540307833012",
+      "directory": "projects/project-2",
+      "deploy_target": null,
+      "deploy_command": null,
+      "tech_stack": null,
+      "repo_url": null
+    }
+  }
+}

@@ -1,0 +1,17 @@
+# Cantrip — never commit secrets
+config/settings.json
+
+# Runtime state (optional — uncomment if you want bots.json tracked)
+# config/bots.json
+
+# Worker memory files (large, per-session)
+projects/*/.memory/
+
+# Manager memory files
+docs/memory/manager/*.md
+
+# macOS
+.DS_Store
+
+# Node (if projects use it)
+node_modules/

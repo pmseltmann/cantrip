@@ -32,9 +32,22 @@ if command -v tmux &> /dev/null; then
         exit 0
     fi
 
+    # Write a launcher script to avoid shell quoting issues in tmux
+    LAUNCHER="/tmp/cantrip-manager-launch.sh"
+    cat > "$LAUNCHER" <<'LAUNCHER_EOF'
+#!/usr/bin/env bash
+LAUNCHER_EOF
+    echo "export DISCORD_BOT_TOKEN=$(printf '%q' "$TOKEN")" >> "$LAUNCHER"
+    cat >> "$LAUNCHER" <<LAUNCHER_EOF
+exec claude \\
+    --channels plugin:discord@claude-plugins-official \\
+    --dangerously-skip-permissions \\
+    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")
+LAUNCHER_EOF
+    chmod +x "$LAUNCHER"
+
     echo "Starting manager bot in tmux session: $SESSION_NAME"
-    tmux new-session -d -s "$SESSION_NAME" -c "$CANTRIP_ROOT" \
-        "DISCORD_BOT_TOKEN=\"$TOKEN\" claude --channels plugin:discord@claude-plugins-official --dangerously-skip-permissions --append-system-prompt \"$SYSTEM_PROMPT\""
+    tmux new-session -d -s "$SESSION_NAME" -c "$CANTRIP_ROOT" "$LAUNCHER"
 
     echo "Manager bot started. Attach: tmux attach -t $SESSION_NAME"
 else

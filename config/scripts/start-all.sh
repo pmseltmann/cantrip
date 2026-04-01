@@ -14,11 +14,22 @@ echo "=== Cantrip: Starting System ==="
 echo ""
 
 # Prevent Mac from sleeping while bots are running
+CAFFEINATE_PIDFILE="$CANTRIP_ROOT/.caffeinate.pid"
 if command -v caffeinate &> /dev/null; then
+    # Kill any existing caffeinate from a previous run
+    if [ -f "$CAFFEINATE_PIDFILE" ]; then
+        OLD_PID=$(cat "$CAFFEINATE_PIDFILE")
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "Stopping previous caffeinate (PID $OLD_PID)..."
+            kill "$OLD_PID" 2>/dev/null || true
+        fi
+        rm -f "$CAFFEINATE_PIDFILE"
+    fi
+
     echo "Enabling caffeinate (preventing sleep)..."
     caffeinate -dims &
-    CAFFEINATE_PID=$!
-    echo "caffeinate PID: $CAFFEINATE_PID (kill this to allow sleep again)"
+    echo $! > "$CAFFEINATE_PIDFILE"
+    echo "caffeinate PID: $(cat "$CAFFEINATE_PIDFILE")"
     echo ""
 fi
 

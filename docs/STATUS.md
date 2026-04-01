@@ -8,8 +8,6 @@
 |--------|--------|-----------------|-------|
 | Worker-1 | idle | — | — |
 | Worker-2 | idle | — | — |
-| Worker-3 | idle | — | — |
-| Worker-4 | idle | — | — |
 
 ## Projects
 

@@ -77,15 +77,29 @@ fi
 REPLICATE_TOKEN=$(cfg_token "replicate" 2>/dev/null || echo "")
 VERCEL_TOKEN_VAL=$(cfg_vercel_token 2>/dev/null || echo "")
 
-ENV_VARS="DISCORD_BOT_TOKEN=\"$TOKEN\""
-[ -n "$REPLICATE_TOKEN" ] && ENV_VARS="$ENV_VARS REPLICATE_API_TOKEN=\"$REPLICATE_TOKEN\""
-[ -n "$VERCEL_TOKEN_VAL" ] && ENV_VARS="$ENV_VARS VERCEL_TOKEN=\"$VERCEL_TOKEN_VAL\""
+# Write a launcher script to avoid shell quoting issues in tmux
+LAUNCHER="/tmp/cantrip-${WORKER_ID}-launch.sh"
+cat > "$LAUNCHER" <<'LAUNCHER_EOF'
+#!/usr/bin/env bash
+LAUNCHER_EOF
+echo "export DISCORD_BOT_TOKEN=$(printf '%q' "$TOKEN")" >> "$LAUNCHER"
+[ -n "$REPLICATE_TOKEN" ] && echo "export REPLICATE_API_TOKEN=$(printf '%q' "$REPLICATE_TOKEN")" >> "$LAUNCHER"
+[ -n "$VERCEL_TOKEN_VAL" ] && echo "export VERCEL_TOKEN=$(printf '%q' "$VERCEL_TOKEN_VAL")" >> "$LAUNCHER"
+cat >> "$LAUNCHER" <<LAUNCHER_EOF
+exec claude \\
+    --channels plugin:discord@claude-plugins-official \\
+    --dangerously-skip-permissions \\
+    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")
+LAUNCHER_EOF
+chmod +x "$LAUNCHER"
 
 # Launch
 if command -v tmux &> /dev/null; then
     echo "Starting $WORKER_ID in tmux session: $SESSION_NAME"
-    tmux new-session -d -s "$SESSION_NAME" -c "$PROJECT_DIR" \
-        "$ENV_VARS claude --channels plugin:discord@claude-plugins-official --dangerously-skip-permissions --append-system-prompt \"$SYSTEM_PROMPT\""
+    tmux new-session -d -s "$SESSION_NAME" -c "$PROJECT_DIR" "$LAUNCHER"
+
+    # Update bots.json with the new attunement
+    bots_json_update ".workers[\"$WORKER_ID\"].assigned_project = \"$PROJECT_NAME\" | .workers[\"$WORKER_ID\"].assigned_channel = \"$PROJECT_NAME\" | .workers[\"$WORKER_ID\"].status = \"active\""
 
     echo "$WORKER_ID attuned. Attach: tmux attach -t $SESSION_NAME"
 else

@@ -27,7 +27,7 @@ graph TB
             M_FS["READ /projects/*<br/>WRITE /docs/"]
         end
 
-        subgraph Pool["Worker Pool"]
+        subgraph Pool["Worker Pool (1–N familiars)"]
             subgraph W1["Worker-1 (assigned: project-1)"]
                 W1_CC["Claude Code<br/>--channels discord<br/>--dangerously-skip-permissions"]
                 W1_FS["R/W /projects/project-1/ ONLY"]
@@ -36,8 +36,7 @@ graph TB
                 W2_CC["Claude Code<br/>--channels discord<br/>--dangerously-skip-permissions"]
                 W2_FS["R/W /projects/project-2/ ONLY"]
             end
-            W3["Worker-3 (idle)"]
-            W4["Worker-4 (idle)"]
+            WN["Worker-3..N (idle)"]
         end
     end
 
@@ -55,15 +54,15 @@ graph TB
 
 ### Worker Pool Model
 
-Instead of one dedicated bot per project, Cantrip uses a pool of 4 pre-registered generic worker bots — familiars — (Bot-Worker-1 through Bot-Worker-4) that are attuned to projects on demand:
+Instead of one dedicated bot per project, Cantrip uses a pool of pre-registered generic worker bots — familiars — (Bot-Worker-1 through Bot-Worker-N) that are attuned to projects on demand:
 
 - At any time, a familiar is either **idle** or **attuned to exactly one project**
 - The manager bot tracks attunements and suggests re-attunement when it sees unattended tasks in project channels
 - You confirm all attunements — the manager never auto-attunes
 - A project can only have one familiar at a time
-- With 4 familiars and 10 projects, you can work on 4 projects simultaneously; the others queue
+- With N familiars and M projects, you can work on N projects simultaneously; the others queue
 
-**Why a pool instead of one-per-project**: Fewer Discord bots to register, more efficient use of API sessions, and easier to scale. Casting a new project doesn't require creating a new Discord bot — just a new channel and project folder.
+**Why a pool instead of one-per-project**: Fewer Discord bots to register, more efficient use of API sessions, and easier to scale. Casting a new project doesn't require creating a new Discord bot — just a new channel and project folder. Adding a new worker is just registering a new Discord bot and adding its token to `settings.json`.
 
 ### Attunement Flow
 
@@ -77,13 +76,12 @@ sequenceDiagram
     participant DC as Discord API
 
     You->>Mgr: "Attune Worker-1 to landing-page"
-    Mgr->>W: "Save your handoff note"
+    Note over Mgr,W: Bot-to-bot messaging not supported by Channels plugin.<br/>User relays handoff instructions manually.
+    You->>W: "Save your handoff note — you're being reassigned"
     W->>W: Writes transcript to .memory/YYYY-MM-DD.md
     W->>W: Writes handoff note (what's done, what's pending)
-    W-->>Mgr: "Handoff saved"
-    Mgr->>W: Kill session (tmux kill-session)
-    Mgr->>DC: Remove Worker-1 visibility from previous channel
-    Mgr->>DC: Grant Worker-1 visibility to #landing-page
+    W-->>You: "Handoff saved"
+    Mgr->>Mgr: Kill worker session (tmux kill-session)
     Mgr->>Mgr: Run start-worker.sh worker-1 landing-page
     Note over You,Mgr: Permission relay: you approve the script execution from Discord
     W->>W: New session starts in projects/landing-page/
@@ -317,10 +315,10 @@ This keeps memory retrieval efficient — loading one day's file instead of week
 │         You (Discord)           │  ← Only trusted human
 ├─────────────────────────────────┤
 │       Manager Bot               │  ← Reads everything, writes docs/
-│   (standard permissions)        │     Can execute launcher scripts
-│                                 │     (with your Discord approval)
+│   (--dangerously-skip-perms)    │     Can execute launcher scripts
+│                                 │     Access rules enforced by CLAUDE.md
 ├─────────────────────────────────┤
-│       Worker Bots (pool of 4)   │  ← Full access within assigned
+│       Worker Bots (pool of N)   │  ← Full access within assigned
 │   (--dangerously-skip-perms)    │     project folder ONLY
 │                                 │     Must wait for [MERGE] before
 │                                 │     merging/deploying
@@ -371,9 +369,9 @@ Boot / Login
 
 ### API Usage
 
-Claude Code sessions with Channels are **event-driven**: an idle bot waiting for a Discord message uses zero API tokens. Tokens are only consumed when processing a message. On the Max plan, running 4 workers + 1 manager with moderate usage is well within limits.
+Claude Code sessions with Channels are **event-driven**: an idle bot waiting for a Discord message uses zero API tokens. Tokens are only consumed when processing a message. On the Max plan, running several workers + 1 manager with moderate usage is well within limits. Scale the pool based on your plan's rate limits and your hardware.
 
-If rate limiting occurs during peak burst (e.g., 5 bots all processing simultaneously), persistent/assigned workers take priority. The manager can queue new tasks until a worker slot opens up.
+If rate limiting occurs during peak burst (e.g., many bots all processing simultaneously), persistent/assigned workers take priority. The manager can queue new tasks until a worker slot opens up.
 
 ## Configuration
 
@@ -389,7 +387,7 @@ config/settings.json
 ├── user.discord_user_id           # Your Discord user ID
 ├── user.github_username           # For repo creation
 ├── tokens.manager                 # Bot tokens (one per Discord app)
-├── tokens.worker-1..4
+├── tokens.worker-1..N
 ├── tokens.vercel                  # Vercel deploy token
 ├── tokens.github                  # GitHub token (if not using SSH)
 ├── tokens.replicate               # Replicate API token (for image generation)

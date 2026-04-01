@@ -1,0 +1,28 @@
+{
+  "$comment": "Cantrip runtime state. Static config lives in settings.json. Workers here must match the worker entries in settings.json. Add more worker-N entries as needed.",
+
+  "workers": {
+    "worker-1": {
+      "assigned_project": null,
+      "assigned_channel": null,
+      "status": "idle"
+    },
+    "worker-2": {
+      "assigned_project": null,
+      "assigned_channel": null,
+      "status": "idle"
+    }
+  },
+
+  "projects": {
+    "project-1": {
+      "discord_channel": "project-1",
+      "discord_channel_id": "YOUR_CHANNEL_ID",
+      "directory": "projects/project-1",
+      "deploy_target": null,
+      "deploy_command": null,
+      "tech_stack": null,
+      "repo_url": null
+    }
+  }
+}

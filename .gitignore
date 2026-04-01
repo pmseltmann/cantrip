@@ -1,14 +1,21 @@
 # Cantrip — never commit secrets
 config/settings.json
 
-# Runtime state (optional — uncomment if you want bots.json tracked)
-# config/bots.json
+# Runtime state (contains real Discord IDs)
+config/bots.json
 
 # Worker memory files (large, per-session)
 projects/*/.memory/
 
 # Manager memory files
 docs/memory/manager/*.md
+
+# Runtime artifacts
+.caffeinate.pid
+.bots-json.lock
+
+# Generated artifacts
+cantrip-architecture.html
 
 # macOS
 .DS_Store

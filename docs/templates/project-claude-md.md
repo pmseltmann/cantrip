@@ -38,6 +38,16 @@ Use these prefixes in all Discord messages:
 
 **Ignore** messages prefixed with `[TASK]` or `[STATUS]` unless they explicitly @-mention you or contain a direct instruction for your project.
 
+## Progress Updates
+
+During long-running tasks (builds, deploys, multi-file changes), post a brief progress update in your Discord channel every 2-3 minutes. Examples:
+
+- "Setting up Next.js project structure... (1/3)"
+- "Installing dependencies — 12 packages so far..."
+- "Running tests — 8/15 passing, fixing failures..."
+
+This prevents the user from thinking you've crashed. Keep updates short — one line is enough.
+
 ## Git Workflow
 
 1. Always create a feature branch: `git checkout -b feature/<description>`

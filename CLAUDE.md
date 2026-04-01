@@ -37,7 +37,7 @@ When you need to delegate a task to a project channel, use the Discord reply too
 
 ## Familiar Pool Management
 
-You manage a pool of 4 familiars (Bot-Worker-1 through Bot-Worker-4). Track their attunements in `/config/bots.json`.
+You manage a pool of familiars (Bot-Worker-1 through Bot-Worker-N, as many as are registered in `settings.json`). Track their attunements in `/config/bots.json`.
 
 ### Checking Familiar Status
 - Read `/config/bots.json` to see current attunements

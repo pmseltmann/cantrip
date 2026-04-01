@@ -28,14 +28,15 @@ Create these roles (Server Settings → Roles):
 | `Bot-Manager` | Manager bot identity | Manager bot |
 | `Bot-Worker-1` | Worker 1 identity | Worker-1 bot |
 | `Bot-Worker-2` | Worker 2 identity | Worker-2 bot |
-| `Bot-Worker-3` | Worker 3 identity | Worker-3 bot |
-| `Bot-Worker-4` | Worker 4 identity | Worker-4 bot |
+| ... | Add more as needed | ... |
+
+Create one role per worker bot. You can start with 1–2 workers and add more later — just register a new Discord bot application, add its token and user ID to `settings.json`, and create a matching role.
 
 The manager role should have "Manage Channels" and "Manage Roles" permissions so it can toggle worker channel visibility via API.
 
 ## Step 4: Register Discord Bot Applications
 
-Go to the [Discord Developer Portal](https://discord.com/developers/applications). Create **5 applications** (1 manager + 4 workers):
+Go to the [Discord Developer Portal](https://discord.com/developers/applications). Create **1 manager application + 1 application per worker** (e.g., 1 manager + 2 workers = 3 applications). Add more worker applications any time you want to scale up:
 
 For each:
 
@@ -82,17 +83,17 @@ Add all tokens and IDs to `config/settings.json`:
   "tokens": {
     "manager": "your-manager-bot-token",
     "worker-1": "your-worker-1-bot-token",
-    "worker-2": "your-worker-2-bot-token",
-    "worker-3": "your-worker-3-bot-token",
-    "worker-4": "your-worker-4-bot-token",
-    "vercel": "your-vercel-token"
+    "worker-2": "your-worker-2-bot-token"
   },
   "bots": {
     "manager": { "discord_user_id": "manager-bot-user-id" },
-    "worker-1": { "discord_user_id": "worker-1-bot-user-id" }
+    "worker-1": { "discord_user_id": "worker-1-bot-user-id" },
+    "worker-2": { "discord_user_id": "worker-2-bot-user-id" }
   }
 }
 ```
+
+Add more `worker-N` entries to both `tokens` and `bots` for each additional worker.
 
 All scripts read from this file — no environment variables needed.
 
@@ -108,7 +109,9 @@ One-time per machine.
 
 ## Step 8: Pair Each Bot
 
-For each of the 5 bots, start a temporary Claude Code session with that bot's token (copy from `settings.json`):
+**Note**: Pairing is per-bot but the access policy is shared across all bots on the same machine (same `access.json`). You must run the configure + pair flow for each bot's token, but you only need to set the access policy once.
+
+For each bot (manager + all workers), start a temporary Claude Code session with that bot's token (copy from `settings.json`):
 
 ```bash
 # Paste the bot's token from settings.json
@@ -159,7 +162,7 @@ Make sure `config/settings.json` has:
 
 ## Troubleshooting
 
-**Bot not responding**: Check tmux session is running (`tmux ls`), verify token is correct, ensure Message Content Intent is enabled, check channel permissions.
+**Bot not responding**: Check tmux session is running (`tmux ls`), verify token is correct, ensure Message Content Intent is enabled, check channel permissions, and verify `access.json` (see below).
 
 **Auth errors**: Re-authenticate Claude Code with `claude login`. Must use `claude.ai` login (not Console/API key).
 
@@ -168,3 +171,34 @@ Make sure `config/settings.json` has:
 **Bot sees wrong channels**: Verify Discord role permissions. The manager bot should be the only one managing channel visibility.
 
 **caffeinate not working**: Run `caffeinate -dims &` manually, or add to your launchd plist.
+
+### access.json — the hidden dependency
+
+The file `~/.claude/channels/discord/access.json` controls which Discord channels Claude Code will listen to. **Bots will silently ignore messages from channels not listed here.**
+
+- **Location**: `~/.claude/channels/discord/access.json`
+- **Shared by all bots** on the same machine (same file regardless of which bot token is active)
+- **Managed automatically** by `start-worker.sh` and `create-project.sh` — you shouldn't need to edit it manually
+- **Format**: Each channel ID maps to `requireMention` (whether the bot needs an @mention) and `allowFrom` (list of Discord user IDs that can talk to the bot)
+
+**To inspect**:
+```bash
+cat ~/.claude/channels/discord/access.json | jq .
+```
+
+**Example entry**:
+```json
+{
+  "groups": {
+    "1487709515141873815": {
+      "requireMention": false,
+      "allowFrom": ["422111263808684032"]
+    }
+  }
+}
+```
+
+**Common issues**:
+- Channel not in `access.json` → bot ignores all messages in that channel. Fix: re-run `start-worker.sh` for the project, or add the channel manually.
+- Wrong `allowFrom` user ID → bot ignores your messages. The ID must be your Discord user ID (not the bot's).
+- File doesn't exist → run `/discord:configure` in a Claude Code session to initialize it.

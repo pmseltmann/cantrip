@@ -47,8 +47,10 @@ Or manually:
 
 ## Removing a Project
 
-1. Stop any assigned worker: `./config/scripts/stop-worker.sh worker-N`
-2. Remove from `config/bots.json`
-3. Delete the Discord channel
-4. Archive the GitHub repo (optional)
-5. Move or delete `projects/my-app/`
+Use the automated script:
+
+```bash
+./config/scripts/remove-project.sh my-app
+```
+
+This handles everything: stops attuned workers, deletes the Discord channel, archives the GitHub repo, removes from `bots.json`, and deletes the project folder.

@@ -55,8 +55,7 @@ if [ -f "$BOTS_JSON" ]; then
                 tmux kill-session -t "$SESSION_NAME"
             fi
             # Clear the attunement in bots.json
-            jq ".workers[\"$worker_id\"].assigned_project = null | .workers[\"$worker_id\"].assigned_channel = null | .workers[\"$worker_id\"].status = \"idle\"" \
-                "$BOTS_JSON" > "${BOTS_JSON}.tmp" && mv "${BOTS_JSON}.tmp" "$BOTS_JSON"
+            bots_json_update ".workers[\"$worker_id\"].assigned_project = null | .workers[\"$worker_id\"].assigned_channel = null | .workers[\"$worker_id\"].status = \"idle\""
             echo "     $worker_id released"
         fi
     done
@@ -98,7 +97,7 @@ if [ "$ARCHIVE_REPO" = true ]; then
     echo "3/5  Archiving GitHub repo..."
     REPO_URL=$(jq -r ".projects[\"$PROJECT_NAME\"].repo_url // empty" "$BOTS_JSON" 2>/dev/null)
     if [ -n "$REPO_URL" ] && command -v gh &> /dev/null; then
-        REPO_NAME=$(echo "$REPO_URL" | sed 's|.*/||')
+        REPO_NAME=$(echo "$REPO_URL" | sed -e 's|^https://github.com/||' -e 's|^git@github.com:||' -e 's|\.git$||' -e 's|/$||')
         if gh repo archive "$REPO_NAME" --yes 2>/dev/null; then
             echo "     Repo archived: $REPO_NAME"
         else
@@ -117,8 +116,7 @@ echo "4/5  Removing from bots.json..."
 if [ -f "$BOTS_JSON" ]; then
     EXISTING=$(jq -r ".projects[\"$PROJECT_NAME\"] // empty" "$BOTS_JSON")
     if [ -n "$EXISTING" ]; then
-        jq "del(.projects[\"$PROJECT_NAME\"])" "$BOTS_JSON" > "${BOTS_JSON}.tmp" \
-            && mv "${BOTS_JSON}.tmp" "$BOTS_JSON"
+        bots_json_update "del(.projects[\"$PROJECT_NAME\"])"
         echo "     Removed from bots.json"
     else
         echo "     Project not found in bots.json"

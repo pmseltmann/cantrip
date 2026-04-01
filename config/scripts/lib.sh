@@ -66,15 +66,52 @@ cfg_vercel_token() {
     cfg '.tokens.vercel'
 }
 
-cfg_replicate_token() {
-    cfg '.tokens.replicate'
-}
-
 # --- bots.json readers (runtime state) ---
 
 bots_project_channel_id() {
     # Get a project's Discord channel ID from bots.json
     jq -r ".projects[\"$1\"].discord_channel_id // empty" "$BOTS_JSON"
+}
+
+# --- bots.json writer (locked) ---
+
+BOTS_JSON_LOCK="$CANTRIP_ROOT/.bots-json.lock"
+
+bots_json_update() {
+    # Safely update bots.json with a jq filter, using a directory-based lock.
+    # Usage: bots_json_update '.workers["worker-1"].status = "active"'
+    local filter="$1"
+    local retries=0
+
+    while ! mkdir "$BOTS_JSON_LOCK" 2>/dev/null; do
+        # Check for stale lock (holding process is dead)
+        if [ -f "$BOTS_JSON_LOCK/pid" ]; then
+            local lock_pid
+            lock_pid=$(cat "$BOTS_JSON_LOCK/pid" 2>/dev/null || echo "")
+            if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+                echo "WARNING: Breaking stale bots.json lock (PID $lock_pid is dead)" >&2
+                rm -rf "$BOTS_JSON_LOCK"
+                continue
+            fi
+        fi
+
+        retries=$((retries + 1))
+        if [ "$retries" -gt 20 ]; then
+            echo "ERROR: Could not acquire bots.json lock after 2 seconds. Stale lock?" >&2
+            echo "Remove $BOTS_JSON_LOCK manually if no other script is running." >&2
+            return 1
+        fi
+        sleep 0.1  # macOS /bin/sleep supports fractional seconds
+    done
+
+    # Record holding PID for stale lock detection
+    echo $$ > "$BOTS_JSON_LOCK/pid"
+
+    # Use || rc=$? to guarantee lock release even under set -e
+    local rc=0
+    jq "$filter" "$BOTS_JSON" > "${BOTS_JSON}.tmp" && mv "${BOTS_JSON}.tmp" "$BOTS_JSON" || rc=$?
+    rm -rf "$BOTS_JSON_LOCK"
+    return "$rc"
 }
 
 # --- Utilities ---

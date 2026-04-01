@@ -54,6 +54,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# --- Validate project name ---
+
+if [[ ! "$PROJECT_NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "ERROR: Invalid project name '$PROJECT_NAME'."
+    echo "Use only lowercase letters, numbers, and hyphens (e.g., my-landing-page)."
+    exit 1
+fi
+
 # --- Setup paths ---
 
 PROJECT_DIR="$CANTRIP_ROOT/projects/$PROJECT_NAME"
@@ -135,8 +143,7 @@ if [ "$CREATE_REPO" = true ]; then
 
     # Update CLAUDE.md with repo URL if we got one
     if [ -n "$REPO_URL" ] && [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
-        # Only replace the first occurrence (the repo URL placeholder)
-        sed -i '' "0,/\[TO BE CONFIGURED\]/s||\[TO BE CONFIGURED\]|" "$PROJECT_DIR/CLAUDE.md" 2>/dev/null || true
+        sed -i '' "s|\*\*Repository\*\*: \[TO BE CONFIGURED\]|**Repository**: $REPO_URL|" "$PROJECT_DIR/CLAUDE.md"
     fi
 
     cd "$CANTRIP_ROOT"
@@ -150,11 +157,12 @@ CHANNEL_ID=""
 if [ "$CREATE_CHANNEL" = true ]; then
     echo "4/6  Creating Discord channel #$PROJECT_NAME..."
 
-    # Build the JSON payload
+    # Build the JSON payload safely via jq
     if [ -n "$CATEGORY_ID" ]; then
-        PAYLOAD="{\"name\": \"$PROJECT_NAME\", \"type\": 0, \"parent_id\": \"$CATEGORY_ID\"}"
+        PAYLOAD=$(jq -n --arg name "$PROJECT_NAME" --arg parent "$CATEGORY_ID" \
+            '{name: $name, type: 0, parent_id: $parent}')
     else
-        PAYLOAD="{\"name\": \"$PROJECT_NAME\", \"type\": 0}"
+        PAYLOAD=$(jq -n --arg name "$PROJECT_NAME" '{name: $name, type: 0}')
     fi
 
     RESPONSE=$(curl -s -X POST "https://discord.com/api/v10/guilds/$SERVER_ID/channels" \
@@ -186,7 +194,7 @@ if [ -f "$BOTS_JSON" ]; then
         echo "     WARNING: Project '$PROJECT_NAME' already in bots.json. Updating..."
     fi
 
-    jq ".projects[\"$PROJECT_NAME\"] = {
+    bots_json_update ".projects[\"$PROJECT_NAME\"] = {
         \"discord_channel\": \"$PROJECT_NAME\",
         \"discord_channel_id\": $([ -n "$CHANNEL_ID" ] && echo "\"$CHANNEL_ID\"" || echo "null"),
         \"directory\": \"projects/$PROJECT_NAME\",
@@ -194,7 +202,7 @@ if [ -f "$BOTS_JSON" ]; then
         \"deploy_command\": $([ -n "$DEPLOY_COMMAND" ] && echo "\"$DEPLOY_COMMAND\"" || echo "null"),
         \"tech_stack\": $([ -n "$TECH_STACK" ] && echo "\"$TECH_STACK\"" || echo "null"),
         \"repo_url\": $([ -n "$REPO_URL" ] && echo "\"$REPO_URL\"" || echo "null")
-    }" "$BOTS_JSON" > "${BOTS_JSON}.tmp" && mv "${BOTS_JSON}.tmp" "$BOTS_JSON"
+    }"
 
     echo "     bots.json updated"
 else

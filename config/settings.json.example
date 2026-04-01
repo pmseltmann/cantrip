@@ -1,5 +1,5 @@
 {
-  "$comment": "Cantrip configuration. Copy this to settings.json and fill in your values.",
+  "$comment": "Cantrip configuration. Copy this to settings.json and fill in your values. Add as many worker entries as you need (worker-1, worker-2, ..., worker-N). Each worker needs a separate Discord bot application.",
 
   "discord": {
     "server_id": "YOUR_DISCORD_SERVER_ID",
@@ -16,8 +16,6 @@
     "manager": "YOUR_MANAGER_BOT_TOKEN",
     "worker-1": "YOUR_WORKER_1_BOT_TOKEN",
     "worker-2": "YOUR_WORKER_2_BOT_TOKEN",
-    "worker-3": "YOUR_WORKER_3_BOT_TOKEN",
-    "worker-4": "YOUR_WORKER_4_BOT_TOKEN",
     "vercel": "YOUR_VERCEL_TOKEN",
     "github": null,
     "replicate": "YOUR_REPLICATE_API_TOKEN"
@@ -34,14 +32,6 @@
     },
     "worker-2": {
       "discord_user_id": "YOUR_WORKER_2_BOT_USER_ID",
-      "discord_role_id": null
-    },
-    "worker-3": {
-      "discord_user_id": "YOUR_WORKER_3_BOT_USER_ID",
-      "discord_role_id": null
-    },
-    "worker-4": {
-      "discord_user_id": "YOUR_WORKER_4_BOT_USER_ID",
       "discord_role_id": null
     }
   }

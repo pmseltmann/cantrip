@@ -59,10 +59,16 @@ prompt_value() {
 
 prompt_secret() {
     # prompt_secret "Label" — reads without echo, returns trimmed value via stdout
+    # Shows character count after entry so user knows something was captured
     local label="$1"
     local value
     read -rsp "  $label: " value
-    echo "" >&2  # newline after hidden input (must go to stderr, not stdout)
+    local len=${#value}
+    if [ "$len" -gt 0 ]; then
+        echo -e " ${GREEN}(${len} chars)${RESET}" >&2
+    else
+        echo "" >&2
+    fi
     trim "$value"
 }
 

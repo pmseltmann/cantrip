@@ -13,6 +13,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 echo "=== Cantrip: Starting System ==="
 echo ""
 
+# Ensure channel server is built
+CHANNEL_SERVER="$CANTRIP_ROOT/channel-server"
+if [ ! -f "$CHANNEL_SERVER/dist/index.js" ]; then
+    echo "Building channel server..."
+    if [ ! -d "$CHANNEL_SERVER/node_modules" ]; then
+        (cd "$CHANNEL_SERVER" && npm install --silent)
+    fi
+    (cd "$CHANNEL_SERVER" && npx tsc)
+    echo "Channel server built."
+    echo ""
+fi
+
 # Prevent Mac from sleeping while bots are running
 CAFFEINATE_PIDFILE="$CANTRIP_ROOT/.caffeinate.pid"
 if command -v caffeinate &> /dev/null; then

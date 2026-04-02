@@ -76,8 +76,7 @@ sequenceDiagram
     participant DC as Discord API
 
     You->>Mgr: "Attune Worker-1 to landing-page"
-    Note over Mgr,W: Bot-to-bot messaging not supported by Channels plugin.<br/>User relays handoff instructions manually.
-    You->>W: "Save your handoff note — you're being reassigned"
+    Mgr->>W: "[TASK] Save your handoff note — you're being reassigned"
     W->>W: Writes transcript to .memory/YYYY-MM-DD.md
     W->>W: Writes handoff note (what's done, what's pending)
     W-->>You: "Handoff saved"
@@ -122,26 +121,39 @@ Each bot's CLAUDE.md instructs it to ignore messages prefixed with the other bot
 
 The plugin only processes messages from paired human Discord users, regardless of what's in the `allowFrom` list in `access.json`. Adding bot user IDs to the allowlist has no effect.
 
-### Working Delegation Model: Human-in-the-Loop
+### Delegation Model
 
-Since bot-to-bot messaging doesn't work, delegation follows a human relay pattern:
+With the custom channel server, the manager can delegate directly to workers:
 
 1. You tell the manager in `#manager` what you need
-2. Manager drafts a task plan and may post it in the project channel (for your reference)
-3. **You** post the task directly in `#project-<name>` — this is the trigger the worker receives
-4. Worker executes the task and reports back
+2. Manager posts a `[TASK]` message in the project channel — the worker receives it directly
+3. Worker executes the task and reports `[DONE]`
+4. You approve merges and deploys with `[MERGE]`
 
-This keeps you in the loop for every delegation, which provides natural oversight.
+You remain in the loop for approvals and can observe all delegation in Discord, but routine task handoff is autonomous.
 
-### Future: Custom Channel Server
+### Custom Channel Server (cantrip-discord)
 
-To enable fully autonomous bot-to-bot delegation, build a custom MCP channel server (~150-200 lines of TypeScript) that connects to Discord directly via `discord.js` without the official plugin's message filtering. This would be loaded with:
+To enable fully autonomous bot-to-bot delegation, Cantrip includes a custom MCP channel server (`channel-server/`) that connects to Discord directly via `discord.js` — without the official plugin's message filtering. Unlike the official plugin, it delivers **all messages** (human and bot) to Claude Code.
 
+**How it works:**
+- MCP server over stdio (`@modelcontextprotocol/sdk` + `discord.js`)
+- Declares `claude/channel` capability so Claude Code receives Discord messages as `<channel>` events
+- Exposes a `discord_reply` tool so Claude can send messages back
+- Reads `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_IDS`, and optionally `DISCORD_ALLOWED_USERS` from env
+- Each bot instance gets its own env vars (set by launcher scripts per tmux session)
+- Does NOT use the shared `access.json` — channel access is controlled per-session via `DISCORD_CHANNEL_IDS`
+
+**Loaded with:**
 ```bash
 claude --dangerously-load-development-channels server:cantrip-discord
 ```
 
-This is the planned upgrade path once the human-relay workflow is validated.
+**What this unlocks:**
+- Manager can post `[TASK]` messages in project channels and workers actually receive them
+- Workers can post `[DONE]` and the manager sees it directly
+- No more human relay for routine delegation
+- The user remains in the loop for `[MERGE]` confirmations and attunement approvals
 
 ## End-to-End Workflow: Project → Build → Deploy
 
@@ -187,7 +199,7 @@ You: "[MERGE]"
                                            https://landing-page.vercel.app"
 ```
 
-**Note**: You post tasks directly in the project channel because the Channels plugin only delivers human messages. The manager bot helps with planning, project setup, and coordination in `#manager`, but you are the trigger for worker tasks.
+**Note**: With the custom channel server, the manager can post `[TASK]` messages directly in project channels and workers will receive them. You approve attunements and merges, but routine delegation is autonomous.
 
 ### Prerequisites for This Workflow
 
@@ -330,7 +342,7 @@ This keeps memory retrieval efficient — loading one day's file instead of week
 | Layer | Mechanism | Enforcement |
 |-------|-----------|-------------|
 | Server access | Private Discord, invite-only | Discord |
-| Sender gating | Channels allowlist per bot | Claude Code |
+| Sender gating | DISCORD_ALLOWED_USERS env var per session | Channel server |
 | Channel isolation | Discord role permissions | Discord API |
 | File isolation | Worker launched in project folder | OS (working directory) |
 | Manager read-only | CLAUDE.md + no skip-permissions | Convention + Claude |
@@ -426,7 +438,6 @@ Verified during initial setup (March 2026):
 
 ## Remaining Open Questions
 
-- **Custom channel server**: Building a custom MCP channel server that doesn't filter bot messages would enable fully autonomous bot-to-bot delegation. This is the main upgrade path.
 - **CLAUDE.md auto-loading**: Need to verify whether CLAUDE.md is loaded before or after the first Channels message arrives. If before, the issue may be context priority (system prompt > CLAUDE.md).
 - **Permission relay from Discord**: Untested — does the permission relay actually work for approving shell commands from Discord?
 - **Session cleanup**: What happens to the Discord connection when a tmux session is killed? Does the bot go offline immediately?

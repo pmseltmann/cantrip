@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cantrip-discord": {
+      "command": "node",
+      "args": ["channel-server/dist/index.js"]
+    }
+  }
+}

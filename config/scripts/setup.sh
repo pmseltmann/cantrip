@@ -5,7 +5,7 @@
 # Walks through prerequisites, Discord config, token collection,
 # config file generation, plugin install, and validation.
 #
-# Usage: ./setup.sh
+# Usage: ./setup.sh [--add-worker]
 
 set -uo pipefail
 trap 'rm -f "${CANTRIP_CONFIG}.tmp" "${BOTS_JSON}.tmp"; echo -e "\n\nSetup interrupted. Re-run to continue."; exit 130' INT
@@ -93,6 +93,125 @@ validate_bot_token() {
     return 1
 }
 
+# --- Argument parsing ---
+
+ADD_WORKER_MODE=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --add-worker)
+            ADD_WORKER_MODE=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: setup.sh [--add-worker]"
+            echo ""
+            echo "  --add-worker   Add a new worker bot to an existing configuration"
+            echo "  (no flags)     Run full interactive setup wizard"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1 (try --help)"
+            exit 1
+            ;;
+    esac
+done
+
+# ============================================================
+# --add-worker mode: add a single worker to existing config
+# ============================================================
+
+if [ "$ADD_WORKER_MODE" = true ]; then
+    header "Add Worker Bot"
+
+    if [ ! -f "$CANTRIP_CONFIG" ] || ! jq empty "$CANTRIP_CONFIG" 2>/dev/null; then
+        error "settings.json not found or invalid. Run setup.sh first (without --add-worker)."
+        exit 1
+    fi
+    if [ ! -f "$BOTS_JSON" ] || ! jq empty "$BOTS_JSON" 2>/dev/null; then
+        error "bots.json not found or invalid. Run setup.sh first (without --add-worker)."
+        exit 1
+    fi
+
+    # Determine next worker number
+    existing_workers=$(jq -r '[.tokens | keys[] | select(startswith("worker-"))] | length' "$CANTRIP_CONFIG" 2>/dev/null || echo "0")
+    NEXT_NUM=$((existing_workers + 1))
+    WORKER_NAME="worker-$NEXT_NUM"
+
+    info "Adding ${BOLD}$WORKER_NAME${RESET} (you have $existing_workers worker(s) currently)."
+    echo ""
+
+    # Collect token
+    token=""
+    while [ -z "$token" ]; do
+        token=$(prompt_secret "$WORKER_NAME bot token")
+        [ -z "$token" ] && warn "Token cannot be empty"
+    done
+
+    # Validate and auto-detect bot user ID
+    BOT_USER_ID_FROM_API=""
+    bot_user_id=""
+    if validate_bot_token "$token"; then
+        success "$WORKER_NAME token is valid"
+        if [ -n "$BOT_USER_ID_FROM_API" ]; then
+            info "  Auto-detected bot user ID: $BOT_USER_ID_FROM_API"
+            bot_user_id="$BOT_USER_ID_FROM_API"
+        fi
+    else
+        warn "Could not verify token via Discord API."
+    fi
+
+    if [ -z "$bot_user_id" ]; then
+        while ! validate_discord_id "$bot_user_id"; do
+            bot_user_id=$(prompt_value "$WORKER_NAME bot user ID")
+            validate_discord_id "$bot_user_id" || warn "Should be a 17-20 digit number"
+        done
+    fi
+
+    # Update settings.json
+    UPDATED_SETTINGS=$(jq \
+        --arg name "$WORKER_NAME" \
+        --arg token "$token" \
+        --arg uid "$bot_user_id" \
+        '.tokens[$name] = $token | .bots[$name] = {discord_user_id: $uid, discord_role_id: null}' \
+        "$CANTRIP_CONFIG")
+
+    if printf '%s\n' "$UPDATED_SETTINGS" | jq empty 2>/dev/null; then
+        printf '%s\n' "$UPDATED_SETTINGS" | jq '.' > "${CANTRIP_CONFIG}.tmp" && mv "${CANTRIP_CONFIG}.tmp" "$CANTRIP_CONFIG"
+        success "settings.json updated with $WORKER_NAME"
+    else
+        error "Failed to update settings.json. This is a bug — please report it."
+        rm -f "${CANTRIP_CONFIG}.tmp"
+        exit 1
+    fi
+
+    # Update bots.json
+    UPDATED_BOTS=$(jq \
+        --arg name "$WORKER_NAME" \
+        '.workers[$name] = {assigned_project: null, assigned_channel: null, status: "idle"}' \
+        "$BOTS_JSON")
+
+    printf '%s\n' "$UPDATED_BOTS" | jq '.' > "${BOTS_JSON}.tmp" && mv "${BOTS_JSON}.tmp" "$BOTS_JSON"
+    success "bots.json updated with $WORKER_NAME"
+
+    # Offer pairing
+    echo ""
+    if prompt_yesno "Launch pairing session for $WORKER_NAME now?"; then
+        info "Launching Claude Code for $WORKER_NAME..."
+        info "Run: /discord:configure, then pair via DM, then /exit"
+        echo ""
+        if DISCORD_BOT_TOKEN="$token" claude --channels plugin:discord@claude-plugins-official; then
+            success "$WORKER_NAME pairing completed"
+        else
+            warn "$WORKER_NAME session exited with an error. You can re-pair later."
+        fi
+    fi
+
+    echo ""
+    success "${BOLD}$WORKER_NAME added.${RESET} Start it with: ./config/scripts/start-worker.sh $WORKER_NAME <project-name>"
+    exit 0
+fi
+
 # ============================================================
 header "Welcome to Cantrip Setup"
 # ============================================================
@@ -117,6 +236,49 @@ echo -e "  Some steps require your browser (Discord Developer Portal)."
 
 prompt_enter
 
+# ============================================================
+# Resume detection: skip data collection if config already exists
+# ============================================================
+
+RESUME_MODE=false
+
+if [ -f "$CANTRIP_CONFIG" ] && jq empty "$CANTRIP_CONFIG" 2>/dev/null; then
+    echo ""
+    info "Existing ${BOLD}settings.json${RESET} detected."
+
+    # Show what's configured
+    existing_workers=$(jq -r '[.tokens | keys[] | select(startswith("worker-"))] | length' "$CANTRIP_CONFIG" 2>/dev/null || echo "0")
+    existing_server=$(jq -r '.discord.server_id // "(not set)"' "$CANTRIP_CONFIG" 2>/dev/null)
+    info "  Server ID: $existing_server"
+    info "  Workers configured: $existing_workers"
+    echo ""
+    echo -e "  ${BOLD}Options:${RESET}"
+    echo -e "    1. Skip to pairing & validation (use existing config)"
+    echo -e "    2. Start fresh (overwrite everything)"
+    echo ""
+    local_choice=""
+    read -rp "  Enter 1 or 2 [1]: " local_choice
+    local_choice="${local_choice:-1}"
+    if [ "$local_choice" = "1" ]; then
+        RESUME_MODE=true
+
+        # Load values from existing config for pairing step
+        NUM_WORKERS="$existing_workers"
+        TOTAL_BOTS=$((NUM_WORKERS + 1))
+        MANAGER_TOKEN=$(jq -r '.tokens.manager // empty' "$CANTRIP_CONFIG" 2>/dev/null)
+
+        declare -a WORKER_TOKENS
+        declare -a WORKER_BOT_USER_IDS
+        for i in $(seq 1 "$NUM_WORKERS"); do
+            WORKER_TOKENS+=("$(jq -r ".tokens[\"worker-$i\"] // empty" "$CANTRIP_CONFIG" 2>/dev/null)")
+            WORKER_BOT_USER_IDS+=("$(jq -r ".bots[\"worker-$i\"].discord_user_id // empty" "$CANTRIP_CONFIG" 2>/dev/null)")
+        done
+
+        info "Skipping to plugin check and pairing..."
+    fi
+fi
+
+if [ "$RESUME_MODE" = false ]; then
 # ============================================================
 header "Step 1: Prerequisites"
 # ============================================================
@@ -464,6 +626,153 @@ if [ ! -d "$CANTRIP_ROOT/projects" ]; then
     success "Created projects/ directory"
 else
     success "projects/ directory already exists"
+fi
+
+fi  # end RESUME_MODE=false block
+
+# ============================================================
+header "Step 5b: Discord Roles & Permissions (Optional)"
+# ============================================================
+
+echo -e "  Cantrip can auto-create Discord roles for each bot and lock down"
+echo -e "  channel permissions so workers only see their assigned channels."
+echo -e "  This uses the manager bot's token (requires Manage Roles + Manage Channels)."
+echo -e ""
+echo -e "  You can skip this and set up roles manually later."
+
+if prompt_yesno "Auto-create bot roles and set #manager permissions?"; then
+    # Load manager token (might be from resume mode or freshly set)
+    if [ -z "${MANAGER_TOKEN:-}" ]; then
+        MANAGER_TOKEN=$(jq -r '.tokens.manager // empty' "$CANTRIP_CONFIG" 2>/dev/null)
+    fi
+    if [ -z "${SERVER_ID:-}" ]; then
+        SERVER_ID=$(jq -r '.discord.server_id // empty' "$CANTRIP_CONFIG" 2>/dev/null)
+    fi
+    if [ -z "${MANAGER_CHANNEL_ID:-}" ]; then
+        MANAGER_CHANNEL_ID=$(jq -r '.discord.manager_channel_id // empty' "$CANTRIP_CONFIG" 2>/dev/null)
+    fi
+
+    if [ -z "$MANAGER_TOKEN" ] || [ -z "$SERVER_ID" ]; then
+        warn "Manager token or server ID missing — skipping role creation."
+    else
+        DISCORD_API="https://discord.com/api/v10"
+        AUTH_HEADER="Authorization: Bot $MANAGER_TOKEN"
+        ROLE_CREATION_OK=true
+
+        # Determine how many workers to create roles for
+        if [ -z "${NUM_WORKERS:-}" ]; then
+            NUM_WORKERS=$(jq -r '[.tokens | keys[] | select(startswith("worker-"))] | length' "$CANTRIP_CONFIG" 2>/dev/null || echo "0")
+            TOTAL_BOTS=$((NUM_WORKERS + 1))
+        fi
+
+        ALL_BOT_NAMES=("manager")
+        for i in $(seq 1 "$NUM_WORKERS"); do
+            ALL_BOT_NAMES+=("worker-$i")
+        done
+
+        # Create a role for each bot (role IDs stored in settings.json as we go)
+        for bot_name in "${ALL_BOT_NAMES[@]}"; do
+            # Check if role already exists in settings.json
+            existing_role=$(jq -r ".bots[\"$bot_name\"].discord_role_id // empty" "$CANTRIP_CONFIG" 2>/dev/null || echo "")
+            if [ -n "$existing_role" ] && [ "$existing_role" != "null" ]; then
+                pass "$bot_name — role already exists ($existing_role)"
+                continue
+            fi
+
+            # Create role via Discord API
+            role_response=$(curl -s -w "\n%{http_code}" \
+                -H "$AUTH_HEADER" \
+                -H "Content-Type: application/json" \
+                -X POST "$DISCORD_API/guilds/$SERVER_ID/roles" \
+                -d "$(jq -n --arg name "Cantrip-${bot_name}" '{name: $name, permissions: "0", mentionable: false}')" \
+                2>/dev/null || echo -e "\n000")
+
+            role_http=$(echo "$role_response" | tail -1)
+            role_body=$(echo "$role_response" | sed '$d')
+
+            if [ "$role_http" = "200" ]; then
+                role_id=$(echo "$role_body" | jq -r '.id // empty' 2>/dev/null || echo "")
+                if [ -n "$role_id" ]; then
+                    pass "$bot_name — role created (Cantrip-${bot_name}, ID: $role_id)"
+
+                    # Save role ID to settings.json immediately
+                    UPDATED=$(jq --arg name "$bot_name" --arg rid "$role_id" \
+                        '.bots[$name].discord_role_id = $rid' "$CANTRIP_CONFIG")
+                    printf '%s\n' "$UPDATED" | jq '.' > "${CANTRIP_CONFIG}.tmp" && mv "${CANTRIP_CONFIG}.tmp" "$CANTRIP_CONFIG"
+                else
+                    warn "$bot_name — role created but couldn't parse ID"
+                    ROLE_CREATION_OK=false
+                fi
+            elif [ "$role_http" = "403" ]; then
+                warn "$bot_name — permission denied. Manager bot needs 'Manage Roles' permission."
+                ROLE_CREATION_OK=false
+                break
+            else
+                warn "$bot_name — failed to create role (HTTP $role_http)"
+                ROLE_CREATION_OK=false
+            fi
+        done
+
+        # Assign roles to bot users (read role IDs back from settings.json)
+        if [ "$ROLE_CREATION_OK" = true ]; then
+            echo ""
+            info "Assigning roles to bot users..."
+
+            for bot_name in "${ALL_BOT_NAMES[@]}"; do
+                bot_uid=$(jq -r ".bots[\"$bot_name\"].discord_user_id // empty" "$CANTRIP_CONFIG" 2>/dev/null || echo "")
+                role_id=$(jq -r ".bots[\"$bot_name\"].discord_role_id // empty" "$CANTRIP_CONFIG" 2>/dev/null || echo "")
+
+                if [ -z "$bot_uid" ] || [ -z "$role_id" ]; then
+                    warn "$bot_name — skipping role assignment (missing user ID or role ID)"
+                    continue
+                fi
+
+                assign_http=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -H "$AUTH_HEADER" \
+                    -H "Content-Type: application/json" \
+                    -X PUT "$DISCORD_API/guilds/$SERVER_ID/members/$bot_uid/roles/$role_id" \
+                    2>/dev/null || echo "000")
+
+                if [ "$assign_http" = "204" ] || [ "$assign_http" = "200" ]; then
+                    pass "$bot_name — role assigned"
+                elif [ "$assign_http" = "403" ]; then
+                    warn "$bot_name — permission denied assigning role. Check bot hierarchy."
+                else
+                    warn "$bot_name — failed to assign role (HTTP $assign_http)"
+                fi
+            done
+        fi
+
+        # Set #manager channel permissions: all bots can view + send
+        if [ "$ROLE_CREATION_OK" = true ] && [ -n "${MANAGER_CHANNEL_ID:-}" ]; then
+            echo ""
+            info "Setting #manager channel permissions..."
+
+            for bot_name in "${ALL_BOT_NAMES[@]}"; do
+                role_id=$(jq -r ".bots[\"$bot_name\"].discord_role_id // empty" "$CANTRIP_CONFIG" 2>/dev/null || echo "")
+                [ -z "$role_id" ] && continue
+
+                # Allow: View Channel (1024) + Send Messages (2048) + Read History (65536) = 68608
+                perm_http=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -H "$AUTH_HEADER" \
+                    -H "Content-Type: application/json" \
+                    -X PUT "$DISCORD_API/channels/$MANAGER_CHANNEL_ID/permissions/$role_id" \
+                    -d '{"allow": "68608", "deny": "0", "type": 0}' \
+                    2>/dev/null || echo "000")
+
+                if [ "$perm_http" = "204" ] || [ "$perm_http" = "200" ]; then
+                    pass "$bot_name — #manager access granted"
+                elif [ "$perm_http" = "403" ]; then
+                    warn "$bot_name — permission denied. Manager bot needs 'Manage Channels'."
+                    break
+                else
+                    warn "$bot_name — failed to set permissions (HTTP $perm_http)"
+                fi
+            done
+        fi
+    fi
+else
+    info "Skipped. You can set up roles later — see config/discord-setup.md Step 3."
 fi
 
 # ============================================================

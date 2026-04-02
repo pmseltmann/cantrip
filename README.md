@@ -12,7 +12,7 @@ Cantrip uses Claude Code's [Channels feature](https://code.claude.com/docs/en/ch
 You (Discord)
     ↓
 Manager Bot (always running, sees all channels)
-    ↓ delegates via Discord messages
+    ↓ delegates autonomously via Discord messages
 Worker Pool (familiars, attuned to projects as needed)
     ↓ codes, commits, pushes, deploys
 Your Projects (isolated folders with full Claude Code access)
@@ -76,6 +76,9 @@ For the full walkthrough, follow `config/discord-setup.md` end to end.
 cantrip/
 ├── README.md                           # This file
 ├── CLAUDE.md                           # Manager bot context (read by Claude Code)
+├── channel-server/                     # Custom Discord MCP channel (enables bot-to-bot messaging)
+│   ├── index.ts                        # MCP server: discord.js + @modelcontextprotocol/sdk
+│   └── package.json
 ├── config/
 │   ├── settings.json                    # All config: tokens, IDs, keys (fill this out first)
 │   ├── bots.json                       # Runtime state: familiar attunements + project registry

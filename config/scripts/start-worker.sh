@@ -73,9 +73,27 @@ elif [ -z "$CHANNEL_ID" ]; then
     echo "Add the channel ID to bots.json and re-run, or manually update access.json."
 fi
 
+# Ensure project has .mcp.json so the custom channel server is discoverable
+MCP_JSON="$PROJECT_DIR/.mcp.json"
+if [ ! -f "$MCP_JSON" ]; then
+    # Create .mcp.json with absolute path to the channel server
+    cat > "$MCP_JSON" <<MCPEOF
+{
+  "mcpServers": {
+    "cantrip-discord": {
+      "command": "node",
+      "args": ["$CANTRIP_ROOT/channel-server/dist/index.js"]
+    }
+  }
+}
+MCPEOF
+    echo "Created .mcp.json in project directory."
+fi
+
 # Build environment variables for the worker session
 REPLICATE_TOKEN=$(cfg_token "replicate" 2>/dev/null || echo "")
 VERCEL_TOKEN_VAL=$(cfg_vercel_token 2>/dev/null || echo "")
+HUMAN_USER_ID=$(cfg_human_user_id 2>/dev/null || echo "")
 
 # Write a launcher script to avoid shell quoting issues in tmux
 LAUNCHER="/tmp/cantrip-${WORKER_ID}-launch.sh"
@@ -83,11 +101,13 @@ cat > "$LAUNCHER" <<'LAUNCHER_EOF'
 #!/usr/bin/env bash
 LAUNCHER_EOF
 echo "export DISCORD_BOT_TOKEN=$(printf '%q' "$TOKEN")" >> "$LAUNCHER"
+echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$CHANNEL_ID")" >> "$LAUNCHER"
+[ -n "$HUMAN_USER_ID" ] && echo "export DISCORD_ALLOWED_USERS=$(printf '%q' "$HUMAN_USER_ID")" >> "$LAUNCHER"
 [ -n "$REPLICATE_TOKEN" ] && echo "export REPLICATE_API_TOKEN=$(printf '%q' "$REPLICATE_TOKEN")" >> "$LAUNCHER"
 [ -n "$VERCEL_TOKEN_VAL" ] && echo "export VERCEL_TOKEN=$(printf '%q' "$VERCEL_TOKEN_VAL")" >> "$LAUNCHER"
 cat >> "$LAUNCHER" <<LAUNCHER_EOF
 exec claude \\
-    --channels plugin:discord@claude-plugins-official \\
+    --dangerously-load-development-channels server:cantrip-discord \\
     --dangerously-skip-permissions \\
     --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")
 LAUNCHER_EOF
@@ -106,10 +126,12 @@ else
     echo "tmux not found — running in foreground."
     cd "$PROJECT_DIR"
     export DISCORD_BOT_TOKEN="$TOKEN"
+    export DISCORD_CHANNEL_IDS="$CHANNEL_ID"
+    [ -n "$HUMAN_USER_ID" ] && export DISCORD_ALLOWED_USERS="$HUMAN_USER_ID"
     [ -n "$REPLICATE_TOKEN" ] && export REPLICATE_API_TOKEN="$REPLICATE_TOKEN"
     [ -n "$VERCEL_TOKEN_VAL" ] && export VERCEL_TOKEN="$VERCEL_TOKEN_VAL"
     exec claude \
-        --channels plugin:discord@claude-plugins-official \
+        --dangerously-load-development-channels server:cantrip-discord \
         --dangerously-skip-permissions \
         --append-system-prompt "$SYSTEM_PROMPT"
 fi

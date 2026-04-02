@@ -63,17 +63,18 @@ When a task arrives for a project with no attuned familiar:
 
 When re-attuning a familiar that's currently active on another project:
 
-1. First, kill the familiar's existing tmux session:
+1. First, tell the familiar to save its handoff note by posting in its project channel:
+   `[TASK] Save your handoff note — you're being reassigned. Write your current state, uncommitted changes, and recommendations to .memory/`
+2. Kill the familiar's existing tmux session:
    ```bash
    tmux kill-session -t cantrip-worker-N
    ```
-   Note: The familiar cannot receive your Discord messages (the plugin filters bot messages). So do NOT try to message the familiar. Just kill the session directly.
-2. Then start it on the new project:
+3. Then start it on the new project:
    ```bash
    ./config/scripts/start-worker.sh worker-N new-project-name
    ```
-3. Update `/config/bots.json` with the new attunement
-4. Tell the user the re-attunement is done
+4. Update `/config/bots.json` with the new attunement
+5. Tell the user the re-attunement is done
 
 ### Important: How Familiar Sessions Work
 

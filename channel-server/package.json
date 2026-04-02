@@ -1,0 +1,20 @@
+{
+  "name": "cantrip-discord-channel",
+  "version": "1.0.0",
+  "description": "Custom Discord channel server for Cantrip — passes bot messages through (unlike the official plugin)",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "discord.js": "^14.18.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/node": "^22.0.0"
+  }
+}

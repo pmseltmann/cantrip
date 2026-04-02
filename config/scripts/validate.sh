@@ -37,6 +37,16 @@ warn() {
     WARNINGS=$((WARNINGS + 1))
 }
 
+validate_bot_token() {
+    # Hit Discord API to verify the token. Returns 0 if valid, 1 if not.
+    local token="$1"
+    local response
+    response=$(curl -s -w "\n%{http_code}" -H "Authorization: Bot $token" "https://discord.com/api/v10/users/@me" 2>/dev/null || echo "000")
+    local http_code
+    http_code=$(echo "$response" | tail -1)
+    [ "$http_code" = "200" ]
+}
+
 # ============================================================
 # 1. CLI Prerequisites
 # ============================================================
@@ -155,6 +165,49 @@ if [ "$SETTINGS_OK" = true ]; then
     fi
 else
     fail "Skipping field checks — settings.json is missing or invalid"
+fi
+
+echo ""
+
+# ============================================================
+# 3b. Token Validation via Discord API
+# ============================================================
+
+echo "=== Token Validation (Discord API) ==="
+echo ""
+
+if [ "$SETTINGS_OK" = true ] && command -v curl &>/dev/null; then
+    # Validate manager token
+    manager_token=$(jq -r '.tokens.manager // empty' "$CANTRIP_CONFIG" 2>/dev/null || echo "")
+    if [ -n "$manager_token" ] && [[ "$manager_token" != YOUR_* ]]; then
+        if validate_bot_token "$manager_token"; then
+            pass "Manager token — valid (Discord API confirmed)"
+        else
+            fail "Manager token — rejected by Discord API (expired, revoked, or incorrect)"
+        fi
+    else
+        warn "Manager token — skipped (missing or placeholder)"
+    fi
+
+    # Validate worker tokens
+    for worker_name in $(jq -r '.tokens | keys[] | select(startswith("worker-"))' "$CANTRIP_CONFIG" 2>/dev/null); do
+        worker_token=$(jq -r ".tokens[\"$worker_name\"] // empty" "$CANTRIP_CONFIG" 2>/dev/null || echo "")
+        if [ -n "$worker_token" ] && [[ "$worker_token" != YOUR_* ]]; then
+            if validate_bot_token "$worker_token"; then
+                pass "$worker_name token — valid (Discord API confirmed)"
+            else
+                fail "$worker_name token — rejected by Discord API (expired, revoked, or incorrect)"
+            fi
+        else
+            warn "$worker_name token — skipped (missing or placeholder)"
+        fi
+    done
+else
+    if [ "$SETTINGS_OK" != true ]; then
+        warn "Skipping token validation — settings.json is missing or invalid"
+    else
+        warn "Skipping token validation — curl not found"
+    fi
 fi
 
 echo ""

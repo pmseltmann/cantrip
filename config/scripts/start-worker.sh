@@ -107,6 +107,7 @@ echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$CHANNEL_ID")" >> "$LAUNCHER"
 [ -n "$VERCEL_TOKEN_VAL" ] && echo "export VERCEL_TOKEN=$(printf '%q' "$VERCEL_TOKEN_VAL")" >> "$LAUNCHER"
 cat >> "$LAUNCHER" <<LAUNCHER_EOF
 exec claude \\
+    --yes \\
     --dangerously-load-development-channels server:cantrip-discord \\
     --dangerously-skip-permissions \\
     --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")

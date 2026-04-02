@@ -53,6 +53,7 @@ LAUNCHER_EOF
     [ -n "$HUMAN_USER_ID" ] && echo "export DISCORD_ALLOWED_USERS=$(printf '%q' "$HUMAN_USER_ID")" >> "$LAUNCHER"
     cat >> "$LAUNCHER" <<LAUNCHER_EOF
 exec claude \\
+    --yes \\
     --dangerously-load-development-channels server:cantrip-discord \\
     --dangerously-skip-permissions \\
     --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")

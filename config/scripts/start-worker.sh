@@ -109,9 +109,8 @@ echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$CHANNEL_ID")" >> "$LAUNCHER"
 cat >> "$LAUNCHER" <<LAUNCHER_EOF
 echo "[\$(date)] Starting $WORKER_ID..." >> $(printf '%q' "$LOG")
 exec claude \\
-    --yes \\
     --dangerously-load-development-channels server:cantrip-discord \\
-    --dangerously-skip-permissions \\
+    --permission-mode bypassPermissions \\
     --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT") \\
     2>> $(printf '%q' "$LOG")
 LAUNCHER_EOF

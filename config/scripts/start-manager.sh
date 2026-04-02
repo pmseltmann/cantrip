@@ -55,9 +55,8 @@ LAUNCHER_EOF
     cat >> "$LAUNCHER" <<LAUNCHER_EOF
 echo "[\$(date)] Starting manager bot..." >> $(printf '%q' "$LOG")
 exec claude \\
-    --yes \\
     --dangerously-load-development-channels server:cantrip-discord \\
-    --dangerously-skip-permissions \\
+    --permission-mode bypassPermissions \\
     --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT") \\
     2>> $(printf '%q' "$LOG")
 LAUNCHER_EOF

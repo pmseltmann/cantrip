@@ -95,15 +95,13 @@ REPLICATE_TOKEN=$(cfg_token "replicate" 2>/dev/null || echo "")
 VERCEL_TOKEN_VAL=$(cfg_vercel_token 2>/dev/null || echo "")
 HUMAN_USER_ID=$(cfg_human_user_id 2>/dev/null || echo "")
 
-# Write system prompt to a file (avoids quoting issues with expect/Tcl)
+# Write system prompt to a file (avoids shell quoting issues)
 PROMPT_FILE="/tmp/cantrip-${WORKER_ID}-prompt.txt"
 printf '%s' "$SYSTEM_PROMPT" > "$PROMPT_FILE"
 
 LOG="/tmp/cantrip-${WORKER_ID}.log"
 LAUNCHER="/tmp/cantrip-${WORKER_ID}-launch.sh"
-EXPECT_SCRIPT="/tmp/cantrip-${WORKER_ID}-expect.exp"
 
-# Bash wrapper: sets env vars, calls expect
 cat > "$LAUNCHER" <<'LAUNCHER_EOF'
 #!/usr/bin/env bash
 LAUNCHER_EOF
@@ -112,30 +110,13 @@ echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$CHANNEL_ID")" >> "$LAUNCHER"
 [ -n "$HUMAN_USER_ID" ] && echo "export DISCORD_ALLOWED_USERS=$(printf '%q' "$HUMAN_USER_ID")" >> "$LAUNCHER"
 [ -n "$REPLICATE_TOKEN" ] && echo "export REPLICATE_API_TOKEN=$(printf '%q' "$REPLICATE_TOKEN")" >> "$LAUNCHER"
 [ -n "$VERCEL_TOKEN_VAL" ] && echo "export VERCEL_TOKEN=$(printf '%q' "$VERCEL_TOKEN_VAL")" >> "$LAUNCHER"
-
-# Expect script: spawns claude, auto-accepts y/n prompts, then hands off
-cat > "$EXPECT_SCRIPT" <<EXPECTEOF
-#!/usr/bin/env expect -f
-set timeout 30
-spawn claude \
-    --dangerously-load-development-channels server:cantrip-discord \
-    --permission-mode bypassPermissions \
-    --append-system-prompt-file $(printf '%q' "$PROMPT_FILE")
-
-expect {
-    -re {(?i)(y/n|yes/no|\\\[y\\\]|\\\[yes\\\])} {
-        send "y\r"
-        exp_continue
-    }
-    timeout {}
-}
-
-interact
-EXPECTEOF
-
 cat >> "$LAUNCHER" <<LAUNCHER_EOF
 echo "[\$(date)] Starting $WORKER_ID..." >> $(printf '%q' "$LOG")
-exec expect $(printf '%q' "$EXPECT_SCRIPT") 2>> $(printf '%q' "$LOG")
+exec claude \\
+    --dangerously-load-development-channels server:cantrip-discord \\
+    --permission-mode bypassPermissions \\
+    --append-system-prompt-file $(printf '%q' "$PROMPT_FILE") \\
+    2>> $(printf '%q' "$LOG")
 LAUNCHER_EOF
 chmod +x "$LAUNCHER"
 
@@ -144,7 +125,13 @@ if command -v tmux &> /dev/null; then
     echo "Starting $WORKER_ID in tmux session: $SESSION_NAME"
     tmux new-session -d -s "$SESSION_NAME" -c "$PROJECT_DIR" "$LAUNCHER"
 
-    # Wait briefly and check if the session survived
+    # Send 'y' to auto-accept any trust prompts
+    sleep 1
+    tmux send-keys -t "$SESSION_NAME" "y" Enter 2>/dev/null || true
+    sleep 1
+    tmux send-keys -t "$SESSION_NAME" "y" Enter 2>/dev/null || true
+
+    # Check if the session survived
     sleep 2
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
         # Update bots.json with the new attunement

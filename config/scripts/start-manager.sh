@@ -43,52 +43,39 @@ if command -v tmux &> /dev/null; then
         exit 0
     fi
 
-    # Write system prompt to a file (avoids quoting issues with expect/Tcl)
+    # Write system prompt to a file (avoids shell quoting issues)
     PROMPT_FILE="/tmp/cantrip-manager-prompt.txt"
     printf '%s' "$SYSTEM_PROMPT" > "$PROMPT_FILE"
 
     LAUNCHER="/tmp/cantrip-manager-launch.sh"
     LOG="/tmp/cantrip-manager.log"
 
-    # Bash wrapper: sets env vars, calls expect to auto-accept trust prompts
     cat > "$LAUNCHER" <<'LAUNCHER_EOF'
 #!/usr/bin/env bash
 LAUNCHER_EOF
     echo "export DISCORD_BOT_TOKEN=$(printf '%q' "$TOKEN")" >> "$LAUNCHER"
     echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$ALL_CHANNEL_IDS")" >> "$LAUNCHER"
     [ -n "$HUMAN_USER_ID" ] && echo "export DISCORD_ALLOWED_USERS=$(printf '%q' "$HUMAN_USER_ID")" >> "$LAUNCHER"
-
-    # Expect script: spawns claude, auto-accepts y/n prompts, then hands off
-    EXPECT_SCRIPT="/tmp/cantrip-manager-expect.exp"
-    cat > "$EXPECT_SCRIPT" <<EXPECTEOF
-#!/usr/bin/env expect -f
-set timeout 30
-spawn claude \
-    --dangerously-load-development-channels server:cantrip-discord \
-    --permission-mode bypassPermissions \
-    --append-system-prompt-file $(printf '%q' "$PROMPT_FILE")
-
-expect {
-    -re {(?i)(y/n|yes/no|\\\[y\\\]|\\\[yes\\\])} {
-        send "y\r"
-        exp_continue
-    }
-    timeout {}
-}
-
-interact
-EXPECTEOF
-
     cat >> "$LAUNCHER" <<LAUNCHER_EOF
 echo "[\$(date)] Starting manager bot..." >> $(printf '%q' "$LOG")
-exec expect $(printf '%q' "$EXPECT_SCRIPT") 2>> $(printf '%q' "$LOG")
+exec claude \\
+    --dangerously-load-development-channels server:cantrip-discord \\
+    --permission-mode bypassPermissions \\
+    --append-system-prompt-file $(printf '%q' "$PROMPT_FILE") \\
+    2>> $(printf '%q' "$LOG")
 LAUNCHER_EOF
     chmod +x "$LAUNCHER"
 
     echo "Starting manager bot in tmux session: $SESSION_NAME"
     tmux new-session -d -s "$SESSION_NAME" -c "$CANTRIP_ROOT" "$LAUNCHER"
 
-    # Wait briefly and check if the session survived
+    # Send 'y' to auto-accept any trust prompts, then clear the input
+    sleep 1
+    tmux send-keys -t "$SESSION_NAME" "y" Enter 2>/dev/null || true
+    sleep 1
+    tmux send-keys -t "$SESSION_NAME" "y" Enter 2>/dev/null || true
+
+    # Check if the session survived
     sleep 2
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
         echo "Manager bot started. Attach: tmux attach -t $SESSION_NAME"

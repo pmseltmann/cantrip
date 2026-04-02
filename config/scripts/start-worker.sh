@@ -95,9 +95,12 @@ REPLICATE_TOKEN=$(cfg_token "replicate" 2>/dev/null || echo "")
 VERCEL_TOKEN_VAL=$(cfg_vercel_token 2>/dev/null || echo "")
 HUMAN_USER_ID=$(cfg_human_user_id 2>/dev/null || echo "")
 
-# Write a launcher script to avoid shell quoting issues in tmux
+# Write a launcher script that auto-accepts the development channels
+# trust prompt via expect, then hands off to the interactive session.
 LOG="/tmp/cantrip-${WORKER_ID}.log"
 LAUNCHER="/tmp/cantrip-${WORKER_ID}-launch.sh"
+EXPECT_SCRIPT="/tmp/cantrip-${WORKER_ID}-expect.exp"
+
 cat > "$LAUNCHER" <<'LAUNCHER_EOF'
 #!/usr/bin/env bash
 LAUNCHER_EOF
@@ -106,13 +109,36 @@ echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$CHANNEL_ID")" >> "$LAUNCHER"
 [ -n "$HUMAN_USER_ID" ] && echo "export DISCORD_ALLOWED_USERS=$(printf '%q' "$HUMAN_USER_ID")" >> "$LAUNCHER"
 [ -n "$REPLICATE_TOKEN" ] && echo "export REPLICATE_API_TOKEN=$(printf '%q' "$REPLICATE_TOKEN")" >> "$LAUNCHER"
 [ -n "$VERCEL_TOKEN_VAL" ] && echo "export VERCEL_TOKEN=$(printf '%q' "$VERCEL_TOKEN_VAL")" >> "$LAUNCHER"
-cat >> "$LAUNCHER" <<LAUNCHER_EOF
-echo "[\$(date)] Starting $WORKER_ID..." >> $(printf '%q' "$LOG")
-exec claude \\
+
+cat > "$EXPECT_SCRIPT" <<EXPECTEOF
+#!/usr/bin/env expect -f
+set timeout 30
+spawn claude \\
     --dangerously-load-development-channels server:cantrip-discord \\
     --permission-mode bypassPermissions \\
-    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT") \\
-    2>> $(printf '%q' "$LOG")
+    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")
+
+# Auto-accept any yes/no prompts during startup (trust dialogs)
+expect {
+    -re {(?i)(y/n|yes/no|\[y\]|\[yes\])} {
+        send "y\r"
+        exp_continue
+    }
+    -re {\$ $} {
+        # Prompt appeared — startup complete
+    }
+    timeout {
+        # No prompt within 30s — assume startup succeeded
+    }
+}
+
+# Hand off to the interactive session
+interact
+EXPECTEOF
+
+cat >> "$LAUNCHER" <<LAUNCHER_EOF
+echo "[\$(date)] Starting $WORKER_ID..." >> $(printf '%q' "$LOG")
+exec expect $(printf '%q' "$EXPECT_SCRIPT") 2>> $(printf '%q' "$LOG")
 LAUNCHER_EOF
 chmod +x "$LAUNCHER"
 

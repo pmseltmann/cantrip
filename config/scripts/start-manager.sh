@@ -45,6 +45,7 @@ if command -v tmux &> /dev/null; then
 
     # Write a launcher script to avoid shell quoting issues in tmux
     LAUNCHER="/tmp/cantrip-manager-launch.sh"
+    LOG="/tmp/cantrip-manager.log"
     cat > "$LAUNCHER" <<'LAUNCHER_EOF'
 #!/usr/bin/env bash
 LAUNCHER_EOF
@@ -52,18 +53,30 @@ LAUNCHER_EOF
     echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$ALL_CHANNEL_IDS")" >> "$LAUNCHER"
     [ -n "$HUMAN_USER_ID" ] && echo "export DISCORD_ALLOWED_USERS=$(printf '%q' "$HUMAN_USER_ID")" >> "$LAUNCHER"
     cat >> "$LAUNCHER" <<LAUNCHER_EOF
+echo "[\$(date)] Starting manager bot..." >> $(printf '%q' "$LOG")
 exec claude \\
     --yes \\
     --dangerously-load-development-channels server:cantrip-discord \\
     --dangerously-skip-permissions \\
-    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")
+    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT") \\
+    2>> $(printf '%q' "$LOG")
 LAUNCHER_EOF
     chmod +x "$LAUNCHER"
 
     echo "Starting manager bot in tmux session: $SESSION_NAME"
     tmux new-session -d -s "$SESSION_NAME" -c "$CANTRIP_ROOT" "$LAUNCHER"
 
-    echo "Manager bot started. Attach: tmux attach -t $SESSION_NAME"
+    # Wait briefly and check if the session survived
+    sleep 2
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        echo "Manager bot started. Attach: tmux attach -t $SESSION_NAME"
+    else
+        echo "ERROR: Manager session exited immediately."
+        echo "Check log: cat $LOG"
+        echo "Or run manually: bash $LAUNCHER"
+        [ -f "$LOG" ] && echo "" && echo "=== Last 20 lines of log ===" && tail -20 "$LOG"
+        exit 1
+    fi
 else
     echo "tmux not found — running in foreground."
     cd "$CANTRIP_ROOT"

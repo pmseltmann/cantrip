@@ -96,6 +96,7 @@ VERCEL_TOKEN_VAL=$(cfg_vercel_token 2>/dev/null || echo "")
 HUMAN_USER_ID=$(cfg_human_user_id 2>/dev/null || echo "")
 
 # Write a launcher script to avoid shell quoting issues in tmux
+LOG="/tmp/cantrip-${WORKER_ID}.log"
 LAUNCHER="/tmp/cantrip-${WORKER_ID}-launch.sh"
 cat > "$LAUNCHER" <<'LAUNCHER_EOF'
 #!/usr/bin/env bash
@@ -106,11 +107,13 @@ echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$CHANNEL_ID")" >> "$LAUNCHER"
 [ -n "$REPLICATE_TOKEN" ] && echo "export REPLICATE_API_TOKEN=$(printf '%q' "$REPLICATE_TOKEN")" >> "$LAUNCHER"
 [ -n "$VERCEL_TOKEN_VAL" ] && echo "export VERCEL_TOKEN=$(printf '%q' "$VERCEL_TOKEN_VAL")" >> "$LAUNCHER"
 cat >> "$LAUNCHER" <<LAUNCHER_EOF
+echo "[\$(date)] Starting $WORKER_ID..." >> $(printf '%q' "$LOG")
 exec claude \\
     --yes \\
     --dangerously-load-development-channels server:cantrip-discord \\
     --dangerously-skip-permissions \\
-    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")
+    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT") \\
+    2>> $(printf '%q' "$LOG")
 LAUNCHER_EOF
 chmod +x "$LAUNCHER"
 
@@ -119,10 +122,20 @@ if command -v tmux &> /dev/null; then
     echo "Starting $WORKER_ID in tmux session: $SESSION_NAME"
     tmux new-session -d -s "$SESSION_NAME" -c "$PROJECT_DIR" "$LAUNCHER"
 
-    # Update bots.json with the new attunement
-    bots_json_update ".workers[\"$WORKER_ID\"].assigned_project = \"$PROJECT_NAME\" | .workers[\"$WORKER_ID\"].assigned_channel = \"$PROJECT_NAME\" | .workers[\"$WORKER_ID\"].status = \"active\""
+    # Wait briefly and check if the session survived
+    sleep 2
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        # Update bots.json with the new attunement
+        bots_json_update ".workers[\"$WORKER_ID\"].assigned_project = \"$PROJECT_NAME\" | .workers[\"$WORKER_ID\"].assigned_channel = \"$PROJECT_NAME\" | .workers[\"$WORKER_ID\"].status = \"active\""
 
-    echo "$WORKER_ID attuned. Attach: tmux attach -t $SESSION_NAME"
+        echo "$WORKER_ID attuned. Attach: tmux attach -t $SESSION_NAME"
+    else
+        echo "ERROR: $WORKER_ID session exited immediately."
+        echo "Check log: cat $LOG"
+        echo "Or run manually: bash $LAUNCHER"
+        [ -f "$LOG" ] && echo "" && echo "=== Last 20 lines of log ===" && tail -20 "$LOG"
+        exit 1
+    fi
 else
     echo "tmux not found — running in foreground."
     cd "$PROJECT_DIR"

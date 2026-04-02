@@ -96,6 +96,7 @@ validate_bot_token() {
 # --- Argument parsing ---
 
 ADD_WORKER_MODE=false
+FRESH_MODE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -103,11 +104,16 @@ while [[ $# -gt 0 ]]; do
             ADD_WORKER_MODE=true
             shift
             ;;
+        --fresh)
+            FRESH_MODE=true
+            shift
+            ;;
         -h|--help)
-            echo "Usage: setup.sh [--add-worker]"
+            echo "Usage: setup.sh [--add-worker] [--fresh]"
             echo ""
             echo "  --add-worker   Add a new worker bot to an existing configuration"
-            echo "  (no flags)     Run full interactive setup wizard"
+            echo "  --fresh        Start from scratch (ignore existing config)"
+            echo "  (no flags)     Resume where you left off, or start fresh if no config"
             exit 0
             ;;
         *)
@@ -237,45 +243,60 @@ echo -e "  Some steps require your browser (Discord Developer Portal)."
 prompt_enter
 
 # ============================================================
-# Resume detection: skip data collection if config already exists
+# Load existing config values (for per-field resume)
 # ============================================================
+
+# Helper: read a value from existing settings.json (empty string if missing)
+existing_cfg() {
+    if [ -f "$CANTRIP_CONFIG" ] && [ "$FRESH_MODE" = false ]; then
+        jq -r "$1 // empty" "$CANTRIP_CONFIG" 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
+}
 
 RESUME_MODE=false
 
-if [ -f "$CANTRIP_CONFIG" ] && jq empty "$CANTRIP_CONFIG" 2>/dev/null; then
+if [ -f "$CANTRIP_CONFIG" ] && jq empty "$CANTRIP_CONFIG" 2>/dev/null && [ "$FRESH_MODE" = false ]; then
     echo ""
-    info "Existing ${BOLD}settings.json${RESET} detected."
+    info "Existing ${BOLD}settings.json${RESET} detected — will skip already-configured values."
+    info "Run with ${BOLD}--fresh${RESET} to start from scratch."
 
-    # Show what's configured
     existing_workers=$(jq -r '[.tokens | keys[] | select(startswith("worker-"))] | length' "$CANTRIP_CONFIG" 2>/dev/null || echo "0")
     existing_server=$(jq -r '.discord.server_id // "(not set)"' "$CANTRIP_CONFIG" 2>/dev/null)
+    existing_manager_token=$(jq -r '.tokens.manager // empty' "$CANTRIP_CONFIG" 2>/dev/null)
     info "  Server ID: $existing_server"
     info "  Workers configured: $existing_workers"
-    echo ""
-    echo -e "  ${BOLD}Options:${RESET}"
-    echo -e "    1. Skip to pairing & validation (use existing config)"
-    echo -e "    2. Start fresh (overwrite everything)"
-    echo ""
-    local_choice=""
-    read -rp "  Enter 1 or 2 [1]: " local_choice
-    local_choice="${local_choice:-1}"
-    if [ "$local_choice" = "1" ]; then
-        RESUME_MODE=true
+    info "  Manager token: ${existing_manager_token:+(set)}"
 
-        # Load values from existing config for pairing step
-        NUM_WORKERS="$existing_workers"
-        TOTAL_BOTS=$((NUM_WORKERS + 1))
-        MANAGER_TOKEN=$(jq -r '.tokens.manager // empty' "$CANTRIP_CONFIG" 2>/dev/null)
+    # If ALL values are filled (server, manager channel, user, manager token, ≥1 worker), offer full skip
+    existing_mgr_channel=$(existing_cfg '.discord.manager_channel_id')
+    existing_user=$(existing_cfg '.user.discord_user_id')
+    if [ -n "$existing_server" ] && [ "$existing_server" != "(not set)" ] && \
+       [ -n "$existing_mgr_channel" ] && [ -n "$existing_user" ] && \
+       [ -n "$existing_manager_token" ] && [ "$existing_workers" -gt 0 ]; then
+        echo ""
+        if prompt_yesno "Config looks complete. Skip to pairing & validation?"; then
+            RESUME_MODE=true
 
-        declare -a WORKER_TOKENS
-        declare -a WORKER_BOT_USER_IDS
-        for i in $(seq 1 "$NUM_WORKERS"); do
-            WORKER_TOKENS+=("$(jq -r ".tokens[\"worker-$i\"] // empty" "$CANTRIP_CONFIG" 2>/dev/null)")
-            WORKER_BOT_USER_IDS+=("$(jq -r ".bots[\"worker-$i\"].discord_user_id // empty" "$CANTRIP_CONFIG" 2>/dev/null)")
-        done
+            NUM_WORKERS="$existing_workers"
+            TOTAL_BOTS=$((NUM_WORKERS + 1))
+            MANAGER_TOKEN="$existing_manager_token"
+            SERVER_ID="$existing_server"
+            MANAGER_CHANNEL_ID="$existing_mgr_channel"
+            USER_ID="$existing_user"
 
-        info "Skipping to plugin check and pairing..."
+            declare -a WORKER_TOKENS
+            declare -a WORKER_BOT_USER_IDS
+            for i in $(seq 1 "$NUM_WORKERS"); do
+                WORKER_TOKENS+=("$(jq -r ".tokens[\"worker-$i\"] // empty" "$CANTRIP_CONFIG" 2>/dev/null)")
+                WORKER_BOT_USER_IDS+=("$(jq -r ".bots[\"worker-$i\"].discord_user_id // empty" "$CANTRIP_CONFIG" 2>/dev/null)")
+            done
+
+            info "Skipping to plugin check and pairing..."
+        fi
     fi
+    echo ""
 fi
 
 if [ "$RESUME_MODE" = false ]; then
@@ -378,63 +399,143 @@ header "Step 4: Collect Tokens and IDs"
 
 echo -e "  Now let's collect all the tokens and IDs."
 echo -e "  Tokens are entered securely (not displayed)."
+echo -e "  ${GREEN}Values from existing config will be kept — press Enter to accept.${RESET}"
 echo -e ""
 echo -e "  ${YELLOW}Prerequisite:${RESET} Make sure Developer Mode is on in Discord:"
 echo -e "  Settings → Advanced → Developer Mode"
 echo -e "  Then right-click any server/channel/user → 'Copy ID'"
+
+# Helper: prompt for a Discord ID, showing existing value if present
+# Usage: result=$(prompt_or_keep_id "Label" "$existing_value")
+prompt_or_keep_id() {
+    local label="$1"
+    local existing="$2"
+    local value
+
+    if [ -n "$existing" ] && validate_discord_id "$existing"; then
+        echo ""
+        read -rp "  $label [$existing]: " value
+        value=$(trim "$value")
+        if [ -z "$value" ]; then
+            echo "$existing"
+            return
+        fi
+    else
+        value=""
+    fi
+
+    while ! validate_discord_id "$value"; do
+        [ -n "$value" ] && warn "Should be a 17-20 digit number" >&2
+        read -rp "  $label: " value
+        value=$(trim "$value")
+    done
+    echo "$value"
+}
+
+# Helper: prompt for a token with retry on validation failure
+# Usage: collect_bot_token "Label" "$existing_token"
+# Sets: COLLECTED_TOKEN, COLLECTED_BOT_USER_ID
+collect_bot_token() {
+    local label="$1"
+    local existing="$2"
+    COLLECTED_TOKEN=""
+    COLLECTED_BOT_USER_ID=""
+
+    # If we have an existing token, try validating it first
+    if [ -n "$existing" ]; then
+        info "  Validating existing $label token..."
+        BOT_USER_ID_FROM_API=""
+        if validate_bot_token "$existing"; then
+            success "$label token is valid"
+            COLLECTED_TOKEN="$existing"
+            COLLECTED_BOT_USER_ID="${BOT_USER_ID_FROM_API:-}"
+            return
+        else
+            warn "Existing $label token failed validation — may be expired or revoked."
+        fi
+    fi
+
+    # Token entry with retry loop
+    while true; do
+        local token=""
+        while [ -z "$token" ]; do
+            token=$(prompt_secret "$label bot token (paste from Developer Portal)")
+            [ -z "$token" ] && warn "Token cannot be empty"
+        done
+
+        BOT_USER_ID_FROM_API=""
+        if validate_bot_token "$token"; then
+            success "$label token is valid"
+            COLLECTED_TOKEN="$token"
+            COLLECTED_BOT_USER_ID="${BOT_USER_ID_FROM_API:-}"
+            return
+        else
+            warn "Token rejected by Discord API (invalid, expired, or network issue)."
+            echo ""
+            echo -e "  ${BOLD}Options:${RESET}"
+            echo -e "    1. Try again with a different token"
+            echo -e "    2. Keep this token anyway (skip validation)"
+            echo -e "    3. Abort setup"
+            local choice=""
+            read -rp "  Enter 1, 2, or 3 [1]: " choice
+            choice="${choice:-1}"
+            case "$choice" in
+                2)
+                    COLLECTED_TOKEN="$token"
+                    return
+                    ;;
+                3)
+                    error "Setup aborted."
+                    exit 1
+                    ;;
+                *)
+                    # Loop back to try again
+                    ;;
+            esac
+        fi
+    done
+}
+
 echo ""
 info "${BOLD}Discord IDs${RESET}"
 
-SERVER_ID=""
-while ! validate_discord_id "$SERVER_ID"; do
-    SERVER_ID=$(prompt_value "Server ID (right-click server name → Copy ID)")
-    validate_discord_id "$SERVER_ID" || warn "Should be a 17-20 digit number"
-done
+SERVER_ID=$(prompt_or_keep_id "Server ID (right-click server name → Copy ID)" "$(existing_cfg '.discord.server_id')")
 
-MANAGER_CHANNEL_ID=""
-while ! validate_discord_id "$MANAGER_CHANNEL_ID"; do
-    MANAGER_CHANNEL_ID=$(prompt_value "#manager channel ID")
-    validate_discord_id "$MANAGER_CHANNEL_ID" || warn "Should be a 17-20 digit number"
-done
+MANAGER_CHANNEL_ID=$(prompt_or_keep_id "#manager channel ID" "$(existing_cfg '.discord.manager_channel_id')")
 
-USER_ID=""
-while ! validate_discord_id "$USER_ID"; do
-    USER_ID=$(prompt_value "Your Discord user ID (right-click your name → Copy ID)")
-    validate_discord_id "$USER_ID" || warn "Should be a 17-20 digit number"
-done
+USER_ID=$(prompt_or_keep_id "Your Discord user ID (right-click your name → Copy ID)" "$(existing_cfg '.user.discord_user_id')")
 
-PROJECTS_CATEGORY_ID=$(prompt_value "Projects category ID (right-click 'Projects' category → Copy ID, or Enter to skip)")
+existing_category=$(existing_cfg '.discord.projects_category_id')
+if [ -n "$existing_category" ]; then
+    echo ""
+    read -rp "  Projects category ID [$existing_category]: " PROJECTS_CATEGORY_ID
+    PROJECTS_CATEGORY_ID=$(trim "$PROJECTS_CATEGORY_ID")
+    [ -z "$PROJECTS_CATEGORY_ID" ] && PROJECTS_CATEGORY_ID="$existing_category"
+else
+    PROJECTS_CATEGORY_ID=$(prompt_value "Projects category ID (right-click 'Projects' category → Copy ID, or Enter to skip)")
+fi
 [ -n "$PROJECTS_CATEGORY_ID" ] && { validate_discord_id "$PROJECTS_CATEGORY_ID" || warn "Doesn't look like a valid Discord ID"; }
 
-GITHUB_USERNAME=$(prompt_value "GitHub username (for repo creation, or Enter to skip)")
-[ -z "$GITHUB_USERNAME" ] && warn "Skipped — you'll need this for 'gh repo create'"
+existing_github=$(existing_cfg '.user.github_username')
+if [ -n "$existing_github" ]; then
+    echo ""
+    read -rp "  GitHub username [$existing_github]: " GITHUB_USERNAME
+    GITHUB_USERNAME=$(trim "$GITHUB_USERNAME")
+    [ -z "$GITHUB_USERNAME" ] && GITHUB_USERNAME="$existing_github"
+else
+    GITHUB_USERNAME=$(prompt_value "GitHub username (for repo creation, or Enter to skip)")
+    [ -z "$GITHUB_USERNAME" ] && warn "Skipped — you'll need this for 'gh repo create'"
+fi
 
 echo ""
 info "${BOLD}Manager Bot${RESET}"
 
-MANAGER_TOKEN=""
-while [ -z "$MANAGER_TOKEN" ]; do
-    MANAGER_TOKEN=$(prompt_secret "Manager bot token (paste from Developer Portal)")
-    [ -z "$MANAGER_TOKEN" ] && warn "Token cannot be empty"
-done
-
-# Validate token via Discord API
-BOT_USER_ID_FROM_API=""
-if validate_bot_token "$MANAGER_TOKEN"; then
-    success "Manager token is valid"
-    if [ -n "$BOT_USER_ID_FROM_API" ]; then
-        info "  Auto-detected bot user ID: $BOT_USER_ID_FROM_API"
-        MANAGER_BOT_USER_ID="$BOT_USER_ID_FROM_API"
-    fi
-else
-    warn "Could not verify manager token via Discord API. It may still be correct."
-fi
+collect_bot_token "Manager" "$(existing_cfg '.tokens.manager')"
+MANAGER_TOKEN="$COLLECTED_TOKEN"
+MANAGER_BOT_USER_ID="${COLLECTED_BOT_USER_ID:-}"
 
 if [ -z "$MANAGER_BOT_USER_ID" ]; then
-    while ! validate_discord_id "$MANAGER_BOT_USER_ID"; do
-        MANAGER_BOT_USER_ID=$(prompt_value "Manager bot user ID (right-click bot in server → Copy ID)")
-        validate_discord_id "$MANAGER_BOT_USER_ID" || warn "Should be a 17-20 digit number"
-    done
+    MANAGER_BOT_USER_ID=$(prompt_or_keep_id "Manager bot user ID (right-click bot in server → Copy ID)" "$(existing_cfg '.bots.manager.discord_user_id')")
 fi
 
 # Collect worker tokens and IDs
@@ -445,40 +546,40 @@ for i in $(seq 1 "$NUM_WORKERS"); do
     echo ""
     info "${BOLD}Worker-$i Bot${RESET}"
 
-    token=""
-    while [ -z "$token" ]; do
-        token=$(prompt_secret "Worker-$i bot token")
-        [ -z "$token" ] && warn "Token cannot be empty"
-    done
-    WORKER_TOKENS+=("$token")
+    collect_bot_token "Worker-$i" "$(existing_cfg ".tokens[\"worker-$i\"]")"
+    WORKER_TOKENS+=("$COLLECTED_TOKEN")
 
-    # Validate token and auto-detect bot user ID
-    BOT_USER_ID_FROM_API=""
-    bot_user_id=""
-    if validate_bot_token "$token"; then
-        success "Worker-$i token is valid"
-        if [ -n "$BOT_USER_ID_FROM_API" ]; then
-            info "  Auto-detected bot user ID: $BOT_USER_ID_FROM_API"
-            bot_user_id="$BOT_USER_ID_FROM_API"
-        fi
-    else
-        warn "Could not verify Worker-$i token via Discord API."
-    fi
-
+    bot_user_id="${COLLECTED_BOT_USER_ID:-}"
     if [ -z "$bot_user_id" ]; then
-        while ! validate_discord_id "$bot_user_id"; do
-            bot_user_id=$(prompt_value "Worker-$i bot user ID")
-            validate_discord_id "$bot_user_id" || warn "Should be a 17-20 digit number"
-        done
+        bot_user_id=$(prompt_or_keep_id "Worker-$i bot user ID" "$(existing_cfg ".bots[\"worker-$i\"].discord_user_id")")
     fi
     WORKER_BOT_USER_IDS+=("$bot_user_id")
 done
 
 echo ""
-info "${BOLD}Optional Tokens${RESET} (press Enter to skip)"
+info "${BOLD}Optional Tokens${RESET} (press Enter to skip/keep existing)"
 
-VERCEL_TOKEN=$(prompt_secret "Vercel token (optional, for deploys)")
-REPLICATE_TOKEN=$(prompt_secret "Replicate API token (optional, for image gen)")
+existing_vercel=$(existing_cfg '.tokens.vercel')
+if [ -n "$existing_vercel" ]; then
+    info "  Vercel token: (already set, press Enter to keep)"
+    read -rsp "  Vercel token [keep existing]: " VERCEL_TOKEN
+    echo "" >&2
+    VERCEL_TOKEN=$(trim "$VERCEL_TOKEN")
+    [ -z "$VERCEL_TOKEN" ] && VERCEL_TOKEN="$existing_vercel"
+else
+    VERCEL_TOKEN=$(prompt_secret "Vercel token (optional, for deploys)")
+fi
+
+existing_replicate=$(existing_cfg '.tokens.replicate')
+if [ -n "$existing_replicate" ]; then
+    info "  Replicate token: (already set, press Enter to keep)"
+    read -rsp "  Replicate API token [keep existing]: " REPLICATE_TOKEN
+    echo "" >&2
+    REPLICATE_TOKEN=$(trim "$REPLICATE_TOKEN")
+    [ -z "$REPLICATE_TOKEN" ] && REPLICATE_TOKEN="$existing_replicate"
+else
+    REPLICATE_TOKEN=$(prompt_secret "Replicate API token (optional, for image gen)")
+fi
 
 # --- Cross-check IDs ---
 
@@ -519,20 +620,8 @@ fi
 header "Step 5: Generate Config Files"
 # ============================================================
 
-# Build settings.json
-WRITE_SETTINGS=false
-if [ -f "$CANTRIP_CONFIG" ]; then
-    warn "settings.json already exists."
-    if ! prompt_yesno "Overwrite?"; then
-        info "Skipping settings.json"
-    else
-        WRITE_SETTINGS=true
-    fi
-else
-    WRITE_SETTINGS=true
-fi
+# Build settings.json (always write — values were confirmed in review step)
 
-if [ "$WRITE_SETTINGS" = true ]; then
     # Start with base structure
     SETTINGS=$(jq -n \
         --arg server_id "$SERVER_ID" \
@@ -588,27 +677,24 @@ if [ "$WRITE_SETTINGS" = true ]; then
         rm -f "${CANTRIP_CONFIG}.tmp"
         exit 1
     fi
-fi
 
-# Build bots.json
-WRITE_BOTS=false
-if [ -f "$BOTS_JSON" ]; then
-    warn "bots.json already exists."
-    # Check for active workers that would lose their attunement
-    active_workers=$(jq -r '[.workers | to_entries[] | select(.value.status == "active" or .value.assigned_project != null)] | length' "$BOTS_JSON" 2>/dev/null || echo "0")
-    if [ "$active_workers" -gt 0 ]; then
-        warn "$active_workers worker(s) currently have active attunements. Overwriting will reset them."
-    fi
-    if ! prompt_yesno "Overwrite?"; then
-        info "Skipping bots.json"
-    else
-        WRITE_BOTS=true
-    fi
+# Build bots.json — preserve existing project entries and active attunements
+if [ -f "$BOTS_JSON" ] && jq empty "$BOTS_JSON" 2>/dev/null; then
+    # Merge: keep existing projects and update workers list
+    BOTS=$(cat "$BOTS_JSON")
+
+    # Ensure all workers exist (add missing ones, don't reset existing)
+    for i in $(seq 1 "$NUM_WORKERS"); do
+        has_worker=$(printf '%s\n' "$BOTS" | jq -r ".workers[\"worker-$i\"] // empty" 2>/dev/null)
+        if [ -z "$has_worker" ]; then
+            BOTS=$(printf '%s\n' "$BOTS" | jq --arg name "worker-$i" \
+                '.workers[$name] = {assigned_project: null, assigned_channel: null, status: "idle"}')
+        fi
+    done
+
+    printf '%s\n' "$BOTS" | jq '.' > "${BOTS_JSON}.tmp" && mv "${BOTS_JSON}.tmp" "$BOTS_JSON"
+    success "bots.json updated (existing projects and attunements preserved)"
 else
-    WRITE_BOTS=true
-fi
-
-if [ "$WRITE_BOTS" = true ]; then
     BOTS='{"$comment": "Cantrip runtime state. Updated by scripts — generally do not edit manually.", "workers": {}, "projects": {}}'
 
     for i in $(seq 1 "$NUM_WORKERS"); do

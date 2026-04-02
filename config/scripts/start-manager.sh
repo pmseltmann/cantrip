@@ -43,12 +43,14 @@ if command -v tmux &> /dev/null; then
         exit 0
     fi
 
-    # Write a launcher script that auto-accepts the development channels
-    # trust prompt via expect, then hands off to the interactive session.
+    # Write system prompt to a file (avoids quoting issues with expect/Tcl)
+    PROMPT_FILE="/tmp/cantrip-manager-prompt.txt"
+    printf '%s' "$SYSTEM_PROMPT" > "$PROMPT_FILE"
+
     LAUNCHER="/tmp/cantrip-manager-launch.sh"
     LOG="/tmp/cantrip-manager.log"
 
-    # First write a bash wrapper that sets env vars and calls expect
+    # Bash wrapper: sets env vars, calls expect to auto-accept trust prompts
     cat > "$LAUNCHER" <<'LAUNCHER_EOF'
 #!/usr/bin/env bash
 LAUNCHER_EOF
@@ -56,31 +58,24 @@ LAUNCHER_EOF
     echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$ALL_CHANNEL_IDS")" >> "$LAUNCHER"
     [ -n "$HUMAN_USER_ID" ] && echo "export DISCORD_ALLOWED_USERS=$(printf '%q' "$HUMAN_USER_ID")" >> "$LAUNCHER"
 
-    # Write the expect script that auto-accepts prompts
+    # Expect script: spawns claude, auto-accepts y/n prompts, then hands off
     EXPECT_SCRIPT="/tmp/cantrip-manager-expect.exp"
     cat > "$EXPECT_SCRIPT" <<EXPECTEOF
 #!/usr/bin/env expect -f
 set timeout 30
-spawn claude \\
-    --dangerously-load-development-channels server:cantrip-discord \\
-    --permission-mode bypassPermissions \\
-    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")
+spawn claude \
+    --dangerously-load-development-channels server:cantrip-discord \
+    --permission-mode bypassPermissions \
+    --append-system-prompt-file $(printf '%q' "$PROMPT_FILE")
 
-# Auto-accept any yes/no prompts during startup (trust dialogs)
 expect {
-    -re {(?i)(y/n|yes/no|\[y\]|\[yes\])} {
+    -re {(?i)(y/n|yes/no|\\\[y\\\]|\\\[yes\\\])} {
         send "y\r"
         exp_continue
     }
-    -re {\$ $} {
-        # Prompt appeared — startup complete
-    }
-    timeout {
-        # No prompt within 30s — assume startup succeeded
-    }
+    timeout {}
 }
 
-# Hand off to the interactive session
 interact
 EXPECTEOF
 

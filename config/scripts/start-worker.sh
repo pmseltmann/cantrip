@@ -95,12 +95,15 @@ REPLICATE_TOKEN=$(cfg_token "replicate" 2>/dev/null || echo "")
 VERCEL_TOKEN_VAL=$(cfg_vercel_token 2>/dev/null || echo "")
 HUMAN_USER_ID=$(cfg_human_user_id 2>/dev/null || echo "")
 
-# Write a launcher script that auto-accepts the development channels
-# trust prompt via expect, then hands off to the interactive session.
+# Write system prompt to a file (avoids quoting issues with expect/Tcl)
+PROMPT_FILE="/tmp/cantrip-${WORKER_ID}-prompt.txt"
+printf '%s' "$SYSTEM_PROMPT" > "$PROMPT_FILE"
+
 LOG="/tmp/cantrip-${WORKER_ID}.log"
 LAUNCHER="/tmp/cantrip-${WORKER_ID}-launch.sh"
 EXPECT_SCRIPT="/tmp/cantrip-${WORKER_ID}-expect.exp"
 
+# Bash wrapper: sets env vars, calls expect
 cat > "$LAUNCHER" <<'LAUNCHER_EOF'
 #!/usr/bin/env bash
 LAUNCHER_EOF
@@ -110,29 +113,23 @@ echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$CHANNEL_ID")" >> "$LAUNCHER"
 [ -n "$REPLICATE_TOKEN" ] && echo "export REPLICATE_API_TOKEN=$(printf '%q' "$REPLICATE_TOKEN")" >> "$LAUNCHER"
 [ -n "$VERCEL_TOKEN_VAL" ] && echo "export VERCEL_TOKEN=$(printf '%q' "$VERCEL_TOKEN_VAL")" >> "$LAUNCHER"
 
+# Expect script: spawns claude, auto-accepts y/n prompts, then hands off
 cat > "$EXPECT_SCRIPT" <<EXPECTEOF
 #!/usr/bin/env expect -f
 set timeout 30
-spawn claude \\
-    --dangerously-load-development-channels server:cantrip-discord \\
-    --permission-mode bypassPermissions \\
-    --append-system-prompt $(printf '%q' "$SYSTEM_PROMPT")
+spawn claude \
+    --dangerously-load-development-channels server:cantrip-discord \
+    --permission-mode bypassPermissions \
+    --append-system-prompt-file $(printf '%q' "$PROMPT_FILE")
 
-# Auto-accept any yes/no prompts during startup (trust dialogs)
 expect {
-    -re {(?i)(y/n|yes/no|\[y\]|\[yes\])} {
+    -re {(?i)(y/n|yes/no|\\\[y\\\]|\\\[yes\\\])} {
         send "y\r"
         exp_continue
     }
-    -re {\$ $} {
-        # Prompt appeared — startup complete
-    }
-    timeout {
-        # No prompt within 30s — assume startup succeeded
-    }
+    timeout {}
 }
 
-# Hand off to the interactive session
 interact
 EXPECTEOF
 

@@ -125,14 +125,16 @@ if command -v tmux &> /dev/null; then
     echo "Starting $WORKER_ID in tmux session: $SESSION_NAME"
     tmux new-session -d -s "$SESSION_NAME" -c "$PROJECT_DIR" "$LAUNCHER"
 
-    # Send 'y' to auto-accept any trust prompts
-    sleep 1
-    tmux send-keys -t "$SESSION_NAME" "y" Enter 2>/dev/null || true
-    sleep 1
-    tmux send-keys -t "$SESSION_NAME" "y" Enter 2>/dev/null || true
+    # Auto-accept any trust prompts (Enter to confirm defaults)
+    sleep 3
+    tmux send-keys -t "$SESSION_NAME" Enter 2>/dev/null || true
+    sleep 2
+    tmux send-keys -t "$SESSION_NAME" Enter 2>/dev/null || true
+    sleep 2
+    tmux send-keys -t "$SESSION_NAME" Enter 2>/dev/null || true
 
     # Check if the session survived
-    sleep 2
+    sleep 3
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
         # Update bots.json with the new attunement
         bots_json_update ".workers[\"$WORKER_ID\"].assigned_project = \"$PROJECT_NAME\" | .workers[\"$WORKER_ID\"].assigned_channel = \"$PROJECT_NAME\" | .workers[\"$WORKER_ID\"].status = \"active\""

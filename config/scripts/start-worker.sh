@@ -53,6 +53,9 @@ if ! command -v claude &> /dev/null; then
     exit 1
 fi
 
+# Pre-accept Claude Code trust dialog for headless operation
+ensure_claude_trust "$PROJECT_DIR"
+
 # Kill existing session for this worker (if any)
 if command -v tmux &> /dev/null && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     echo "Killing existing session: $SESSION_NAME"

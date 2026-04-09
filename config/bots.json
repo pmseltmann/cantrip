@@ -1,5 +1,5 @@
 {
-  "$comment": "Cantrip runtime state. Static config lives in settings.json. This file tracks familiar attunements and project registry.",
+  "$comment": "Cantrip runtime state. Static config lives in settings.json. Workers here must match the worker entries in settings.json. Add more worker-N entries as needed.",
 
   "workers": {
     "worker-1": {
@@ -8,16 +8,6 @@
       "status": "idle"
     },
     "worker-2": {
-      "assigned_project": null,
-      "assigned_channel": null,
-      "status": "idle"
-    },
-    "worker-3": {
-      "assigned_project": null,
-      "assigned_channel": null,
-      "status": "idle"
-    },
-    "worker-4": {
       "assigned_project": null,
       "assigned_channel": null,
       "status": "idle"

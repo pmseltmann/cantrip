@@ -723,6 +723,79 @@ fi
 fi  # end RESUME_MODE=false block
 
 # ============================================================
+header "Step 5a: Claude Code Trust"
+# ============================================================
+
+echo -e "  Pre-accepting Claude Code trust dialogs so bots can run headless."
+echo -e "  (This prevents interactive prompts from blocking tmux sessions.)"
+
+CLAUDE_JSON="$HOME/.claude.json"
+CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+
+# Set global skipDangerousModePermissionPrompt
+if [ -f "$CLAUDE_SETTINGS" ]; then
+    skip_prompt=$(jq -r '.skipDangerousModePermissionPrompt // false' "$CLAUDE_SETTINGS" 2>/dev/null)
+    if [ "$skip_prompt" != "true" ]; then
+        jq '.skipDangerousModePermissionPrompt = true' "$CLAUDE_SETTINGS" > "${CLAUDE_SETTINGS}.tmp" \
+            && mv "${CLAUDE_SETTINGS}.tmp" "$CLAUDE_SETTINGS" 2>/dev/null && success "skipDangerousModePermissionPrompt set" || warn "Could not update Claude settings"
+    else
+        success "skipDangerousModePermissionPrompt already set"
+    fi
+else
+    warn "~/.claude/settings.json not found — Claude Code may not be installed yet"
+fi
+
+# Pre-accept trust for Cantrip root (manager working directory)
+if [ -f "$CLAUDE_JSON" ]; then
+    current_trust=$(jq -r ".projects[\"$CANTRIP_ROOT\"].hasTrustDialogAccepted // false" "$CLAUDE_JSON" 2>/dev/null)
+    if [ "$current_trust" != "true" ]; then
+        updated=$(jq --arg path "$CANTRIP_ROOT" '
+            .projects[$path] = (.projects[$path] // {}) |
+            .projects[$path].hasTrustDialogAccepted = true |
+            .projects[$path].hasCompletedProjectOnboarding = true |
+            .projects[$path].allowedTools = (.projects[$path].allowedTools // []) |
+            .projects[$path].enabledMcpjsonServers = (.projects[$path].enabledMcpjsonServers // []) |
+            .projects[$path].disabledMcpjsonServers = (.projects[$path].disabledMcpjsonServers // [])
+        ' "$CLAUDE_JSON" 2>/dev/null)
+        if printf '%s\n' "$updated" | jq empty 2>/dev/null; then
+            printf '%s\n' "$updated" > "${CLAUDE_JSON}.tmp" && mv "${CLAUDE_JSON}.tmp" "$CLAUDE_JSON"
+            success "Trust pre-accepted for $CANTRIP_ROOT"
+        else
+            warn "Could not update ~/.claude.json"
+        fi
+    else
+        success "Trust already accepted for $CANTRIP_ROOT"
+    fi
+
+    # Also pre-accept trust for any existing project directories
+    if [ -d "$CANTRIP_ROOT/projects" ]; then
+        for proj_dir in "$CANTRIP_ROOT/projects"/*/; do
+            [ -d "$proj_dir" ] || continue
+            proj_dir="${proj_dir%/}"  # Remove trailing slash
+            proj_trust=$(jq -r ".projects[\"$proj_dir\"].hasTrustDialogAccepted // false" "$CLAUDE_JSON" 2>/dev/null)
+            if [ "$proj_trust" != "true" ]; then
+                updated=$(jq --arg path "$proj_dir" '
+                    .projects[$path] = (.projects[$path] // {}) |
+                    .projects[$path].hasTrustDialogAccepted = true |
+                    .projects[$path].hasCompletedProjectOnboarding = true |
+                    .projects[$path].allowedTools = (.projects[$path].allowedTools // []) |
+                    .projects[$path].enabledMcpjsonServers = (.projects[$path].enabledMcpjsonServers // []) |
+                    .projects[$path].disabledMcpjsonServers = (.projects[$path].disabledMcpjsonServers // [])
+                ' "$CLAUDE_JSON" 2>/dev/null)
+                if printf '%s\n' "$updated" | jq empty 2>/dev/null; then
+                    printf '%s\n' "$updated" > "${CLAUDE_JSON}.tmp" && mv "${CLAUDE_JSON}.tmp" "$CLAUDE_JSON"
+                    success "Trust pre-accepted for $proj_dir"
+                fi
+            else
+                success "Trust already accepted for $proj_dir"
+            fi
+        done
+    fi
+else
+    warn "~/.claude.json not found — trust will be set when bots first launch"
+fi
+
+# ============================================================
 header "Step 5b: Discord Roles & Permissions (Optional)"
 # ============================================================
 

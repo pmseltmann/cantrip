@@ -114,6 +114,52 @@ bots_json_update() {
     return "$rc"
 }
 
+# --- Claude Code trust pre-population ---
+
+ensure_claude_trust() {
+    # Pre-accept the Claude Code trust dialog for a given project directory.
+    # This prevents interactive prompts from blocking headless tmux sessions.
+    # Also ensures skipDangerousModePermissionPrompt is set globally.
+    local project_path="$1"
+    local claude_json="$HOME/.claude.json"
+    local claude_settings="$HOME/.claude/settings.json"
+
+    # Set global skipDangerousModePermissionPrompt if not already set
+    if [ -f "$claude_settings" ]; then
+        local skip_prompt
+        skip_prompt=$(jq -r '.skipDangerousModePermissionPrompt // false' "$claude_settings" 2>/dev/null)
+        if [ "$skip_prompt" != "true" ]; then
+            jq '.skipDangerousModePermissionPrompt = true' "$claude_settings" > "${claude_settings}.tmp" \
+                && mv "${claude_settings}.tmp" "$claude_settings" 2>/dev/null || true
+        fi
+    fi
+
+    # Pre-accept project trust in ~/.claude.json
+    if [ ! -f "$claude_json" ]; then
+        return 0
+    fi
+
+    local current
+    current=$(jq -r ".projects[\"$project_path\"].hasTrustDialogAccepted // false" "$claude_json" 2>/dev/null)
+    if [ "$current" = "true" ]; then
+        return 0
+    fi
+
+    local updated
+    updated=$(jq --arg path "$project_path" '
+        .projects[$path] = (.projects[$path] // {}) |
+        .projects[$path].hasTrustDialogAccepted = true |
+        .projects[$path].hasCompletedProjectOnboarding = true |
+        .projects[$path].allowedTools = (.projects[$path].allowedTools // []) |
+        .projects[$path].enabledMcpjsonServers = (.projects[$path].enabledMcpjsonServers // []) |
+        .projects[$path].disabledMcpjsonServers = (.projects[$path].disabledMcpjsonServers // [])
+    ' "$claude_json" 2>/dev/null)
+
+    if printf '%s\n' "$updated" | jq empty 2>/dev/null; then
+        printf '%s\n' "$updated" > "${claude_json}.tmp" && mv "${claude_json}.tmp" "$claude_json" 2>/dev/null || true
+    fi
+}
+
 # --- Utilities ---
 
 require_token() {

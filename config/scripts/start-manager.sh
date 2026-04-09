@@ -12,29 +12,24 @@ MANAGER_CHANNEL_ID=$(cfg_manager_channel_id)
 
 SYSTEM_PROMPT="You are the Manager Bot for the Cantrip multi-agent system. Read CLAUDE.md immediately for your full instructions.
 
-CRITICAL RULE: You MUST only respond to messages in the #manager channel (ID: $MANAGER_CHANNEL_ID). If a message arrives from ANY other channel (#project-1, #project-2, etc.), DO NOT RESPOND. Do not reply, do not acknowledge, do not send any message. Project channels are handled by worker bots. The ONLY exception is if someone explicitly @-mentions your name in another channel.
+You are subscribed only to the #manager channel (ID: $MANAGER_CHANNEL_ID). You will not receive messages from project channels — workers handle those autonomously.
 
-When you need to delegate work to a project channel, use the Discord reply tool to send a [TASK] message to that channel. But NEVER respond to general conversation in project channels."
+When you need to delegate work to a project channel, use the Discord reply tool to send a [TASK] message to that channel (outbound sends work to any channel, regardless of subscription). To check on a project's progress, read its .memory/ files directly rather than expecting Discord messages."
 
-# Build channel ID list: manager channel + all project channels
 HUMAN_USER_ID=$(cfg_human_user_id 2>/dev/null || echo "")
-ALL_CHANNEL_IDS="$MANAGER_CHANNEL_ID"
-if [ -f "$BOTS_JSON" ]; then
-    PROJECT_CHANNELS=$(jq -r '.projects | to_entries[] | .value.discord_channel_id // empty' "$BOTS_JSON" 2>/dev/null | tr '\n' ',')
-    [ -n "$PROJECT_CHANNELS" ] && ALL_CHANNEL_IDS="$ALL_CHANNEL_IDS,$PROJECT_CHANNELS"
-fi
-# Remove trailing comma
-ALL_CHANNEL_IDS="${ALL_CHANNEL_IDS%,}"
 
 echo "=== Cantrip Manager Bot ==="
 echo "Working directory: $CANTRIP_ROOT"
-echo "Listening on channels: $ALL_CHANNEL_IDS"
+echo "Listening on channel: $MANAGER_CHANNEL_ID (#manager only)"
 echo ""
 
 if ! command -v claude &> /dev/null; then
     echo "ERROR: 'claude' command not found."
     exit 1
 fi
+
+# Pre-accept Claude Code trust dialog for headless operation
+ensure_claude_trust "$CANTRIP_ROOT"
 
 if command -v tmux &> /dev/null; then
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
@@ -54,7 +49,7 @@ if command -v tmux &> /dev/null; then
 #!/usr/bin/env bash
 LAUNCHER_EOF
     echo "export DISCORD_BOT_TOKEN=$(printf '%q' "$TOKEN")" >> "$LAUNCHER"
-    echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$ALL_CHANNEL_IDS")" >> "$LAUNCHER"
+    echo "export DISCORD_CHANNEL_IDS=$(printf '%q' "$MANAGER_CHANNEL_ID")" >> "$LAUNCHER"
     [ -n "$HUMAN_USER_ID" ] && echo "export DISCORD_ALLOWED_USERS=$(printf '%q' "$HUMAN_USER_ID")" >> "$LAUNCHER"
     cat >> "$LAUNCHER" <<LAUNCHER_EOF
 echo "[\$(date)] Starting manager bot..." >> $(printf '%q' "$LOG")
@@ -92,7 +87,7 @@ else
     echo "tmux not found — running in foreground."
     cd "$CANTRIP_ROOT"
     export DISCORD_BOT_TOKEN="$TOKEN"
-    export DISCORD_CHANNEL_IDS="$ALL_CHANNEL_IDS"
+    export DISCORD_CHANNEL_IDS="$MANAGER_CHANNEL_ID"
     [ -n "$HUMAN_USER_ID" ] && export DISCORD_ALLOWED_USERS="$HUMAN_USER_ID"
     exec claude \
         --dangerously-load-development-channels server:cantrip-discord \

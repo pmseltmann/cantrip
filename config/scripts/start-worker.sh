@@ -39,7 +39,7 @@ CHANNEL_ID=$(bots_project_channel_id "$PROJECT_NAME")
 
 SYSTEM_PROMPT="You are a Worker Bot (${WORKER_ID}) assigned to the ${PROJECT_NAME} project. Read CLAUDE.md immediately for your full instructions.
 
-CRITICAL RULE: You MUST only respond to messages in the #${PROJECT_NAME} channel${CHANNEL_ID:+ (ID: $CHANNEL_ID)}. If a message arrives from ANY other channel (#manager, other project channels, etc.), DO NOT RESPOND. Do not reply, do not acknowledge, do not send any message. Those channels are handled by other bots.
+You are subscribed only to the #${PROJECT_NAME} channel${CHANNEL_ID:+ (ID: $CHANNEL_ID)}. You will not receive messages from any other channel — the transport layer filters them out. Outbound sends work to any channel, so you can post status updates to #manager via the discord_reply tool when needed.
 
 You have full read/write access to files in this project folder. Never access files outside this folder. Follow the git workflow and memory conventions in CLAUDE.md."
 
@@ -66,14 +66,9 @@ fi
 # Ensure .memory directory exists
 mkdir -p "$PROJECT_DIR/.memory"
 
-# Add the project's Discord channel to access.json if not already there
-if [ -n "$CHANNEL_ID" ]; then
-    if add_channel_to_access_json "$CHANNEL_ID"; then
-        echo "Channel $CHANNEL_ID (#$PROJECT_NAME) registered in access.json."
-    fi
-elif [ -z "$CHANNEL_ID" ]; then
+if [ -z "$CHANNEL_ID" ]; then
     echo "WARNING: No channel ID found for $PROJECT_NAME in bots.json. Worker may not receive messages."
-    echo "Add the channel ID to bots.json and re-run, or manually update access.json."
+    echo "Add the channel ID to bots.json and re-run."
 fi
 
 # Ensure project has .mcp.json so the custom channel server is discoverable

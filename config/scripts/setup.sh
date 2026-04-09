@@ -206,19 +206,6 @@ if [ "$ADD_WORKER_MODE" = true ]; then
     printf '%s\n' "$UPDATED_BOTS" | jq '.' > "${BOTS_JSON}.tmp" && mv "${BOTS_JSON}.tmp" "$BOTS_JSON"
     success "bots.json updated with $WORKER_NAME"
 
-    # Offer pairing
-    echo ""
-    if prompt_yesno "Launch pairing session for $WORKER_NAME now?"; then
-        info "Launching Claude Code for $WORKER_NAME..."
-        info "Run: /discord:configure, then pair via DM, then /exit"
-        echo ""
-        if DISCORD_BOT_TOKEN="$token" claude --channels plugin:discord@claude-plugins-official; then
-            success "$WORKER_NAME pairing completed"
-        else
-            warn "$WORKER_NAME session exited with an error. You can re-pair later."
-        fi
-    fi
-
     echo ""
     success "${BOLD}$WORKER_NAME added.${RESET} Start it with: ./config/scripts/start-worker.sh $WORKER_NAME <project-name>"
     exit 0
@@ -311,7 +298,7 @@ header "Step 1: Prerequisites"
 # ============================================================
 
 MISSING=0
-for cmd in tmux jq bun gh claude node; do
+for cmd in tmux jq gh claude node npm; do
     if command -v "$cmd" &>/dev/null; then
         version=$("$cmd" --version 2>/dev/null | head -1 || echo "installed")
         success "$cmd ($version)"
@@ -319,10 +306,10 @@ for cmd in tmux jq bun gh claude node; do
         case "$cmd" in
             tmux)  error "$cmd — install with: brew install tmux" ;;
             jq)    error "$cmd — install with: brew install jq" ;;
-            bun)   error "$cmd — install with: brew install oven-sh/bun/bun" ;;
             gh)    error "$cmd — install with: brew install gh" ;;
             claude) error "$cmd — install with: npm install -g @anthropic-ai/claude-code" ;;
             node)  error "$cmd — install with: brew install node" ;;
+            npm)   error "$cmd — comes with node (brew install node)" ;;
         esac
         MISSING=$((MISSING + 1))
     fi
@@ -941,86 +928,60 @@ else
 fi
 
 # ============================================================
-header "Step 6: Discord Plugin"
+header "Step 6: Build Channel Server"
 # ============================================================
 
-PLUGIN_FOUND=false
+echo -e "  Cantrip uses a custom channel server (channel-server/) to bridge"
+echo -e "  Discord and Claude Code. No plugin installation or pairing needed —"
+echo -e "  bots authenticate via DISCORD_BOT_TOKEN and authorize users via"
+echo -e "  DISCORD_ALLOWED_USERS env vars set in the start scripts."
+echo -e ""
+
+CHANNEL_SERVER_DIR="$CANTRIP_ROOT/channel-server"
+CHANNEL_SERVER_DIST="$CHANNEL_SERVER_DIR/dist/index.js"
+
+if [ -f "$CHANNEL_SERVER_DIST" ]; then
+    success "Channel server already built at $CHANNEL_SERVER_DIST"
+elif [ -d "$CHANNEL_SERVER_DIR" ]; then
+    info "Building channel server..."
+    if (cd "$CHANNEL_SERVER_DIR" && npm install --silent && npm run build --silent) 2>&1 | tail -5; then
+        if [ -f "$CHANNEL_SERVER_DIST" ]; then
+            success "Channel server built at $CHANNEL_SERVER_DIST"
+        else
+            warn "Build succeeded but dist/index.js not found — check channel-server/ manually"
+        fi
+    else
+        warn "Channel server build failed. Run manually: cd channel-server && npm install && npm run build"
+    fi
+else
+    warn "channel-server/ directory not found — was the repo cloned correctly?"
+fi
+
+# Warn and offer to remove the old plugin if it's still installed
 if [ -d "$HOME/.claude/plugins" ]; then
+    STALE_PLUGIN=""
     for dir in "$HOME/.claude/plugins/"*discord* "$HOME/.claude/plugins/"*Discord*; do
         if [ -d "$dir" ] 2>/dev/null; then
-            PLUGIN_FOUND=true
+            STALE_PLUGIN="$dir"
             break
         fi
     done
-fi
-
-if [ "$PLUGIN_FOUND" = true ]; then
-    success "Discord plugin already installed"
-else
-    warn "Discord plugin not detected."
-    echo ""
-    info "Install it by running this in any Claude Code session:"
-    echo -e "    ${BOLD}/plugin install discord@claude-plugins-official${RESET}"
-    prompt_enter
-fi
-
-# ============================================================
-header "Step 7: Bot Pairing"
-# ============================================================
-
-echo -e "  Each bot needs a one-time pairing with your Discord account."
-echo -e "  This is the most hands-on step — about 2 minutes per bot."
-echo -e "  You'll pair ${BOLD}$TOTAL_BOTS bot(s)${RESET}."
-echo -e ""
-echo -e "  For each bot, we launch a Claude Code session with its token pre-set."
-echo -e "  Inside the session, run:"
-echo -e ""
-echo -e "    ${BOLD}/discord:configure${RESET}  → paste the same bot token when prompted"
-echo -e ""
-echo -e "    Then in Discord: click the bot's name in the member list → Message"
-echo -e "    Type anything (e.g., 'hello') — the bot replies with a 6-digit pairing code"
-echo -e ""
-echo -e "    ${BOLD}/discord:access pair <code>${RESET}  → enter the code from the DM"
-echo -e "    ${BOLD}/discord:access policy allowlist${RESET}"
-echo -e "    ${BOLD}/exit${RESET}"
-echo -e ""
-echo -e "  ${YELLOW}Note:${RESET} 'access policy allowlist' restricts bots to only respond to paired users."
-echo -e "  This setting is shared — set it once on the first bot, subsequent bots inherit it."
-
-ALL_BOTS=("manager")
-for i in $(seq 1 "$NUM_WORKERS"); do
-    ALL_BOTS+=("worker-$i")
-done
-
-PAIR_INDEX=0
-for bot_name in "${ALL_BOTS[@]}"; do
-    PAIR_INDEX=$((PAIR_INDEX + 1))
-    echo ""
-    info "${BOLD}Bot $PAIR_INDEX of $TOTAL_BOTS${RESET}"
-    if prompt_yesno "Launch pairing session for $bot_name?"; then
-        if [ "$bot_name" = "manager" ]; then
-            bot_token="$MANAGER_TOKEN"
-        else
-            idx=$(echo "$bot_name" | sed 's/worker-//')
-            idx=$((idx - 1))
-            bot_token="${WORKER_TOKENS[$idx]}"
-        fi
+    if [ -n "$STALE_PLUGIN" ]; then
         echo ""
-        info "Launching Claude Code for $bot_name..."
-        info "Run the pairing commands above, then /exit when done."
+        warn "Old Discord plugin detected at $STALE_PLUGIN"
+        warn "This plugin conflicts with the custom channel server and causes"
+        warn "bots to receive messages from channels they shouldn't subscribe to."
         echo ""
-        if DISCORD_BOT_TOKEN="$bot_token" claude --channels plugin:discord@claude-plugins-official; then
-            success "$bot_name pairing session completed"
-        else
-            warn "$bot_name session exited with an error. You can re-pair later manually."
-        fi
-    else
-        info "Skipping $bot_name — pair it later manually"
+        info "Uninstall it from any Claude Code session with:"
+        echo -e "    ${BOLD}/plugin uninstall discord@claude-plugins-official${RESET}"
+        echo ""
+        info "Then remove the stale pairing file:"
+        echo -e "    ${BOLD}rm -rf ~/.claude/channels/discord${RESET}"
     fi
-done
+fi
 
 # ============================================================
-header "Step 8: Validation"
+header "Step 7: Validation"
 # ============================================================
 
 echo -e "  Running preflight checks..."

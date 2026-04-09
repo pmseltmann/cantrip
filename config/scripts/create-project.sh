@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Cast a new project in Cantrip
-# Creates: folder, CLAUDE.md, GitHub repo, Discord channel, bots.json entry, access.json entry
+# Creates: folder, CLAUDE.md, GitHub repo, Discord channel, bots.json entry
 #
 # Usage: ./create-project.sh <project-name> [options]
 #
@@ -98,13 +98,13 @@ fi
 
 # --- Step 1: Create project directory ---
 
-echo "1/6  Creating project directory..."
+echo "1/5  Creating project directory..."
 mkdir -p "$PROJECT_DIR/.memory"
 echo "     $PROJECT_DIR"
 
 # --- Step 2: Generate CLAUDE.md from template ---
 
-echo "2/6  Writing CLAUDE.md from template..."
+echo "2/5  Writing CLAUDE.md from template..."
 if [ -f "$TEMPLATE" ]; then
     sed \
         -e "s|{{PROJECT_NAME}}|$PROJECT_NAME|g" \
@@ -125,7 +125,7 @@ fi
 
 REPO_URL=""
 if [ "$CREATE_REPO" = true ]; then
-    echo "3/6  Creating GitHub repo..."
+    echo "3/5  Creating GitHub repo..."
     cd "$PROJECT_DIR"
     git init -q
     echo "# $PROJECT_NAME" > README.md
@@ -148,14 +148,14 @@ if [ "$CREATE_REPO" = true ]; then
 
     cd "$CANTRIP_ROOT"
 else
-    echo "3/6  Skipping GitHub repo (--no-repo)"
+    echo "3/5  Skipping GitHub repo (--no-repo)"
 fi
 
 # --- Step 4: Create Discord channel ---
 
 CHANNEL_ID=""
 if [ "$CREATE_CHANNEL" = true ]; then
-    echo "4/6  Creating Discord channel #$PROJECT_NAME..."
+    echo "4/5  Creating Discord channel #$PROJECT_NAME..."
 
     # Build the JSON payload safely via jq
     if [ -n "$CATEGORY_ID" ]; then
@@ -181,12 +181,12 @@ if [ "$CREATE_CHANNEL" = true ]; then
         CHANNEL_ID=""
     fi
 else
-    echo "4/6  Skipping Discord channel (--no-channel)"
+    echo "4/5  Skipping Discord channel (--no-channel)"
 fi
 
 # --- Step 5: Update bots.json ---
 
-echo "5/6  Updating bots.json..."
+echo "5/5  Updating bots.json..."
 if [ -f "$BOTS_JSON" ]; then
     # Check if project already exists
     EXISTING=$(jq -r ".projects[\"$PROJECT_NAME\"] // empty" "$BOTS_JSON")
@@ -207,17 +207,6 @@ if [ -f "$BOTS_JSON" ]; then
     echo "     bots.json updated"
 else
     echo "     WARNING: bots.json not found at $BOTS_JSON"
-fi
-
-# --- Step 6: Update access.json ---
-
-if [ -n "$CHANNEL_ID" ]; then
-    echo "6/6  Adding channel to access.json..."
-    if add_channel_to_access_json "$CHANNEL_ID"; then
-        echo "     Channel added to access.json"
-    fi
-else
-    echo "6/6  Skipping access.json (no channel ID)"
 fi
 
 # --- Summary ---

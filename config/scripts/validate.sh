@@ -16,7 +16,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CANTRIP_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CANTRIP_CONFIG="$CANTRIP_ROOT/config/settings.json"
 BOTS_JSON="$CANTRIP_ROOT/config/bots.json"
-ACCESS_JSON="$HOME/.claude/channels/discord/access.json"
 
 # --- State ---
 
@@ -235,58 +234,25 @@ fi
 echo ""
 
 # ============================================================
-# 5. Claude Code Discord plugin
+# 5. Custom channel server
 # ============================================================
 
-echo "=== Claude Code Discord Plugin ==="
+echo "=== Cantrip Channel Server ==="
 echo ""
 
-PLUGIN_FOUND=false
-
-# Check known plugin locations
-if [ -d "$HOME/.claude/plugins" ]; then
-    for dir in "$HOME/.claude/plugins/"*discord* "$HOME/.claude/plugins/"*Discord*; do
-        if [ -d "$dir" ] 2>/dev/null; then
-            pass "Discord plugin found at $dir"
-            PLUGIN_FOUND=true
-            break
-        fi
-    done
-fi
-
-# Also check if the plugin is registered in Claude's config
-if [ "$PLUGIN_FOUND" = false ] && [ -f "$HOME/.claude/plugins.json" ]; then
-    if jq -e '.[] | select(.name | test("discord"; "i"))' "$HOME/.claude/plugins.json" &>/dev/null; then
-        pass "Discord plugin registered in plugins.json"
-        PLUGIN_FOUND=true
-    fi
-fi
-
-if [ "$PLUGIN_FOUND" = false ]; then
-    fail "Claude Code Discord plugin not found"
-    echo "       Install with: claude plugin add <discord-plugin-path>"
-fi
-
-echo ""
-
-# ============================================================
-# 6. access.json
-# ============================================================
-
-echo "=== Channel Access Config ==="
-echo ""
-
-if [ -f "$ACCESS_JSON" ]; then
-    if jq empty "$ACCESS_JSON" 2>/dev/null; then
-        pass "access.json exists and is valid JSON"
-        group_count=$(jq '.groups | length' "$ACCESS_JSON")
-        pass "access.json has $group_count channel group(s) configured"
-    else
-        fail "access.json exists but is not valid JSON"
-    fi
+CHANNEL_SERVER="$CANTRIP_ROOT/channel-server/dist/index.js"
+if [ -f "$CHANNEL_SERVER" ]; then
+    pass "Channel server built at $CHANNEL_SERVER"
 else
-    fail "access.json not found at $ACCESS_JSON"
-    echo "       This file controls which Discord channels the bots can access."
+    fail "Channel server not built at $CHANNEL_SERVER"
+    echo "       Build with: cd channel-server && npm install && npm run build"
+fi
+
+MCP_CONFIG="$CANTRIP_ROOT/.mcp.json"
+if [ -f "$MCP_CONFIG" ] && jq -e '.mcpServers["cantrip-discord"]' "$MCP_CONFIG" &>/dev/null; then
+    pass "Channel server registered in .mcp.json"
+else
+    fail "Channel server not registered in $MCP_CONFIG"
 fi
 
 echo ""

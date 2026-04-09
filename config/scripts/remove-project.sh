@@ -77,13 +77,6 @@ if [ "$DELETE_CHANNEL" = true ]; then
         else
             echo "     WARNING: Failed to delete channel (HTTP $RESPONSE)"
         fi
-
-        # Remove from access.json
-        if [ -f "$ACCESS_JSON" ]; then
-            jq "del(.groups[\"$CHANNEL_ID\"])" "$ACCESS_JSON" > "${ACCESS_JSON}.tmp" \
-                && mv "${ACCESS_JSON}.tmp" "$ACCESS_JSON"
-            echo "     Channel removed from access.json"
-        fi
     else
         echo "     No channel ID or manager token available"
     fi

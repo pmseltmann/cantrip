@@ -9,7 +9,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CANTRIP_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CANTRIP_CONFIG="$CANTRIP_ROOT/config/settings.json"
 BOTS_JSON="$CANTRIP_ROOT/config/bots.json"
-ACCESS_JSON="$HOME/.claude/channels/discord/access.json"
 
 # --- Preflight ---
 
@@ -175,27 +174,3 @@ require_token() {
     echo "$token"
 }
 
-add_channel_to_access_json() {
-    # Add a Discord channel to access.json if not already present
-    local channel_id="$1"
-    local human_id
-    human_id=$(cfg_human_user_id)
-
-    if [ -z "$channel_id" ] || [ -z "$human_id" ]; then
-        return 1
-    fi
-
-    if [ ! -f "$ACCESS_JSON" ]; then
-        echo "WARNING: access.json not found at $ACCESS_JSON"
-        return 1
-    fi
-
-    local existing
-    existing=$(jq -r ".groups[\"$channel_id\"] // empty" "$ACCESS_JSON")
-    if [ -z "$existing" ]; then
-        jq ".groups[\"$channel_id\"] = {\"requireMention\": false, \"allowFrom\": [\"$human_id\"]}" \
-            "$ACCESS_JSON" > "${ACCESS_JSON}.tmp" && mv "${ACCESS_JSON}.tmp" "$ACCESS_JSON"
-        return 0
-    fi
-    return 0
-}
